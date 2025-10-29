@@ -1,34 +1,118 @@
 // pages/index.js
 import Head from 'next/head';
-import ResultFinder from '../components/ResultFinder';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import styles from '../styles/Home.module.css'; // Now imports the correct CSS file
+
+const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
 
 export default function Home() {
+  const [examGroups, setExamGroups] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchExams = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(BEU_EXAM_LIST_URL);
+        if (!response.ok) throw new Error(`BEU API Error: ${response.status}`);
+        const data = await response.json();
+        
+        const groups = data.reduce((acc, course) => {
+            if (course.exams && course.exams.length > 0) {
+                const sortedExams = [...course.exams].sort((a, b) => {
+                     if(a.semId !== b.semId) return b.semId - a.semId;
+                     return a.examName.localeCompare(b.examName);
+                });
+                acc.push({
+                    courseName: course.courseName,
+                    exams: sortedExams
+                });
+            }
+            return acc;
+        }, []);
+        
+        setExamGroups(groups);
+      } catch (err) {
+        console.error("Failed to fetch exam list:", err);
+        setError(`Could not load exam list: ${err.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchExams();
+  }, []);
+
   return (
-    // Basic structure, layout controlled by globals.css
-    <div>
+    <>
       <Head>
-        <title>BEU B.Tech Result Finder</title>
-        <meta name="description" content="Find Bihar Engineering University B.Tech Results quickly." />
+        <title>BEU Examination Results</title>
+        <meta name="description" content="Select your examination to view results." />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main> {/* Centered by globals.css */}
-        <ResultFinder />
+      <main> {/* main tag gets styling from globals.css */}
+        <div className={styles.container}>
+            <h1 className={styles.title}>Examination Results</h1>
+            <p className={styles.subtitle}>(Select a B.Tech exam below to access results)</p>
+
+            {isLoading && <div className={styles.loader}>Loading exams...</div>}
+            {error && <div className={styles.errorBox}>⚠️ {error}</div>}
+            
+            {!isLoading && !error && (
+                <div className={styles.examTableContainer}>
+                    <table className={styles.examTable}>
+                        <thead>
+                            <tr>
+                                <th>Examinations Name</th>
+                                <th>Batch / Session</th>
+                                <th>Exam Held</th>
+                                <th>Published Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {examGroups.map(group => (
+                                <React.Fragment key={group.courseName}>
+                                    <tr className={styles.courseHeaderRow}>
+                                        <td colSpan="4">{group.courseName}</td>
+                                    </tr>
+                                    {group.exams.map(exam => (
+                                        <tr 
+                                            key={exam.id} 
+                                            className={`${styles.examRow} ${group.courseName === 'B.Tech' ? styles.examRowBTech : ''}`}
+                                        >
+                                            <td className={styles.examName}>
+                                                {group.courseName === 'B.Tech' ? (
+                                                    // Link to the /results page, passing examId
+                                                    <Link href={`/results?examId=${exam.id}`} passHref>
+                                                        {exam.examName}
+                                                    </Link>
+                                                ) : (
+                                                    exam.examName
+                                                )}
+                                            </td>
+                                            <td className={styles.batchSession}>{exam.session}</td>
+                                            <td className={styles.examHeld}>{exam.examHeld}</td>
+                                            <td className={styles.publishedDate}>
+                                                {exam.publishDate ? new Date(exam.publishDate).toLocaleDateString('en-GB') : 'N/A'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
       </main>
 
-      <footer> {/* Styled by globals.css */}
-        <p>
-          Powered by{' '}
-          <a href="https://beumate.app" target="_blank" rel="noopener noreferrer">
-            BeuMate App (Concept)
-          </a>
-           | Data from BEU Official Sources
-        </p>
-         <p style={{fontSize: '0.8em', color: '#6c757d', marginTop: '10px'}}>
-             Disclaimer: This is an unofficial tool. Always verify results with official BEU sources. Data accuracy depends on upstream sources.
-         </p>
+      <footer> {/* footer tag gets styling from globals.css */}
+         {/* Empty footer as requested */}
       </footer>
-    </div>
+    </>
   );
-}
+                                              }

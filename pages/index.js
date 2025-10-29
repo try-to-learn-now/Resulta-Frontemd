@@ -1,23 +1,23 @@
 // pages/index.js
 import Head from 'next/head';
-import ResultFinder from '../components/ResultFinder'; // Adjust path if needed
-import styles from '../styles/Home.module.css'; // Optional: for specific homepage styles
+import ResultFinder from '../components/ResultFinder';
 
 export default function Home() {
   return (
-    <div className={styles.container}>
+    // Use simple div, layout controlled by globals.css and ResultFinder's styles
+    <div>
       <Head>
         <title>BEU B.Tech Result Finder</title>
         <meta name="description" content="Find Bihar Engineering University B.Tech Results quickly." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main className={styles.main}>
-        {/* You can add a header/navbar component here if you like */}
+      <main> {/* Centered by globals.css */}
         <ResultFinder />
       </main>
 
-      <footer className={styles.footer}>
+      <footer> {/* Centered by globals.css */}
         <p>
           Powered by{' '}
           <a href="https://beumate.app" target="_blank" rel="noopener noreferrer">
@@ -25,7 +25,6 @@ export default function Home() {
           </a>
            | Data from BEU Official Sources
         </p>
-         {/* Add disclaimer if needed */}
          <p style={{fontSize: '0.8em', color: '#6c757d', marginTop: '10px'}}>
              Disclaimer: This is an unofficial tool. Always verify results with official BEU sources. Data accuracy depends on upstream sources.
          </p>

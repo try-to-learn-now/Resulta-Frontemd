@@ -1,0 +1,22 @@
+{
+  "name": "beu-result-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2", 
+    "next": "latest",            
+    "react": "latest",          
+    "react-dom": "latest"      
+  },
+  "devDependencies": {
+    "eslint": "latest",        
+    "eslint-config-next": "latest"
+  }
+}

@@ -4,7 +4,7 @@ import ResultFinder from '../components/ResultFinder';
 
 export default function Home() {
   return (
-    // Use simple div, layout controlled by globals.css and ResultFinder's styles
+    // Basic structure, layout controlled by globals.css
     <div>
       <Head>
         <title>BEU B.Tech Result Finder</title>
@@ -17,7 +17,7 @@ export default function Home() {
         <ResultFinder />
       </main>
 
-      <footer> {/* Centered by globals.css */}
+      <footer> {/* Styled by globals.css */}
         <p>
           Powered by{' '}
           <a href="https://beumate.app" target="_blank" rel="noopener noreferrer">

@@ -1,0 +1,282 @@
+/* styles/ResultFinder.module.css */
+
+.container {
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    margin: 0 auto;
+}
+
+.title {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #2c3e50;
+    font-size: 1.8em;
+    font-weight: 600;
+}
+
+/* --- Form Styling --- */
+.form {
+    margin-bottom: 35px;
+    padding: 25px;
+    border: 1px solid #dce1e5;
+    border-radius: 8px;
+    background-color: #ffffff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+}
+
+.formGroup {
+    margin-bottom: 18px;
+}
+
+.formGroup label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: bold;
+    color: #555;
+    font-size: 0.95em;
+}
+
+.formGroup input[type="text"],
+.formGroup select {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease;
+}
+.formGroup input[type="text"]:focus,
+.formGroup select:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+
+/* --- Button Styling --- */
+.buttonGroup {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.button { /* Base button style */
+    padding: 10px 22px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    font-size: 1em;
+    font-weight: 500;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
+    white-space: nowrap;
+    line-height: 1.5; /* Ensure text fits */
+}
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.buttonPrimary {
+    background-color: #0d6efd; color: white; /* Bootstrap Primary Blue */
+}
+.buttonPrimary:hover:not(:disabled) { background-color: #0b5ed7; }
+
+.buttonSuccess {
+    background-color: #198754; color: white; /* Bootstrap Success Green */
+}
+.buttonSuccess:hover:not(:disabled) { background-color: #157347; }
+
+.buttonWarning {
+    background-color: #ffc107; color: black; /* Bootstrap Warning Yellow */
+}
+.buttonWarning:hover:not(:disabled) { background-color: #ffca2c; }
+
+.buttonSecondary {
+     background-color: #6c757d; color: white; /* Bootstrap Secondary Grey */
+}
+.buttonSecondary:hover:not(:disabled) { background-color: #5a6268; }
+
+
+/* --- Status & Loading --- */
+.loader {
+    text-align: center;
+    font-weight: bold;
+    color: #0d6efd;
+    padding: 20px;
+    background-color: #cfe2ff; /* Lighter blue background */
+    border: 1px solid #b6d4fe;
+    border-radius: 5px;
+    margin: 20px 0;
+}
+
+.errorBox {
+    color: #842029; /* Darker red */
+    font-weight: 500; /* Slightly less bold */
+    text-align: center;
+    margin-top: 15px;
+    padding: 12px 15px;
+    background-color: #f8d7da; /* Bootstrap Danger Red background */
+    border-radius: 4px;
+    border: 1px solid #f5c2c7; /* Bootstrap Danger Red border */
+}
+.progressInfo {
+    text-align: center;
+    font-style: italic;
+    color: #495057;
+    margin: 15px 0;
+    padding: 8px;
+    background-color: #e9ecef; /* Light grey */
+    border-radius: 4px;
+}
+
+
+/* --- User Result Box --- */
+.userResultBox {
+    border-width: 1px;
+    border-style: solid;
+    margin: 30px 0;
+    padding: 20px 25px;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+.userResultBox h2 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    font-size: 1.5em;
+    color: #333;
+}
+.userResultBox p { margin: 8px 0; line-height: 1.6; }
+.userResultBox strong { color: #495057; }
+
+/* Status specific styles for User Box */
+.success { border-color: #198754; background-color: #d1e7dd; } /* Bootstrap Success Green */
+.Recordnotfound { border-color: #6c757d; background-color: #e9ecef; } /* Bootstrap Secondary Grey */
+.Error { border-color: #dc3545; background-color: #f8d7da; } /* Bootstrap Danger Red */
+.NotFoundinBatch { border-color: #6c757d; background-color: #e9ecef; } /* Treat same as Record not found */
+
+
+/* --- Status Text Colors --- */
+.passStatus { font-weight: bold; color: #198754; } /* Bootstrap Success Green */
+.failStatus { font-weight: bold; color: #dc3545; } /* Bootstrap Danger Red */
+
+
+/* --- Class Results Table --- */
+.tableTitle {
+    margin-top: 40px;
+    margin-bottom: 15px;
+    border-bottom: 2px solid #0d6efd; /* Primary blue */
+    padding-bottom: 8px;
+    font-size: 1.6em;
+    color: #333;
+}
+
+.tableContainer {
+    overflow-x: auto; /* Enable horizontal scroll */
+    margin-top: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.resultsTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    background-color: white;
+    min-width: 900px; /* Ensure table has minimum width */
+}
+
+.resultsTable thead { background-color: #e9ecef; } /* Light grey header */
+
+.resultsTable th,
+.resultsTable td {
+    padding: 10px 12px;
+    border: 1px solid #dee2e6; /* Lighter border */
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.resultsTable th { font-weight: 600; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.5px;}
+
+.resultsTable tbody tr:nth-of-type(even) { background-color: #f8f9fa; } /* Zebra striping */
+.resultsTable tbody tr:hover { background-color: #e9ecef; }
+
+/* Highlight user row */
+.userRow { background-color: #cfe2ff !important; font-weight: bold; } /* Primary blue light */
+/* Error row styling */
+.errorRow td:not(:first-child):not(:last-child) { color: #adb5bd; } /* Grey out data */
+.errorRow .reasonCell { font-weight: bold; } /* Make reason bold */
+
+
+.resultsTable td:nth-child(3), /* SGPA */
+.resultsTable td:nth-child(4), /* CGPA */
+.resultsTable td:nth-child(5) { /* Status */
+    text-align: center;
+}
+.resultsTable th:nth-child(3),
+.resultsTable th:nth-child(4),
+.resultsTable th:nth-child(5) {
+    text-align: center;
+}
+
+.reasonCell {
+    color: #dc3545;
+    font-size: 0.9em;
+    white-space: normal; /* Allow reason to wrap */
+    min-width: 180px;
+}
+
+.noResults {
+    text-align: center;
+    margin-top: 30px;
+    font-style: italic;
+    color: #6c757d;
+}
+
+/* --- Load More Button Container --- */
+.loadMoreContainer {
+    text-align: center;
+    margin: 25px 0;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+.loadMoreContainer p {
+    margin-bottom: 10px;
+    color: #495057;
+}
+
+
+/* --- Modal Styles --- */
+.modalBackdrop { /* ... (keep modal styles from previous) ... */ }
+.modalContent { /* ... (keep modal styles from previous) ... */ }
+.modalCloseButton { /* ... (keep modal styles from previous) ... */ }
+.modalScrollable { /* ... (keep modal styles from previous) ... */ }
+.modalTable { /* ... (keep modal styles from previous) ... */ }
+.modalBackdrop {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(0, 0, 0, 0.6); display: flex;
+    justify-content: center; align-items: center; z-index: 1000;
+}
+.modalContent {
+    background-color: white; padding: 25px 30px; border-radius: 8px;
+    width: 90%; max-width: 800px; max-height: 85vh;
+    position: relative; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    overflow-y: hidden; display: flex; flex-direction: column;
+}
+.modalCloseButton {
+    position: absolute; top: 10px; right: 15px; background: none; border: none;
+    font-size: 1.8rem; cursor: pointer; color: #888;
+}
+.modalCloseButton:hover { color: #333; }
+.modalContent h2 { margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; color: #333; }
+.modalScrollable { overflow-y: auto; flex-grow: 1; padding-right: 10px; /* Space for scrollbar */ }
+.modalTable { width: 100%; border-collapse: collapse; font-size: 0.85em; margin-bottom: 15px; }
+.modalTable th, .modalTable td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+.modalTable thead { background-color: #f2f2f2; } .modalTable th { font-weight: bold; }

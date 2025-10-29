@@ -2,17 +2,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import styles from '../styles/ResultFinder.module.css'; // Using CSS Modules
+import styles from '../styles/ResultFinder.module.css'; // Use the new CSS module
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
 // IMPORTANT: Replace with your actual deployed worker URLs
 const WORKER_URLS = {
-    user: "https://resulta-user.walla.workers.dev/api/result", // Replace beunotes.workers.dev
-    reg1: "https://resulta-reg1.walla.workers.dev/api/result",
-    reg2: "https://resulta-reg2.walla.workers.dev/api/result",
-    le:   "https://resulta-le.walla.workers.dev/api/result",
+    user: "https://resulta-user.walla.workers.dev/api/result", // REPLACE
+    reg1: "https://resulta-reg1.walla.workers.dev/api/result", // REPLACE
+    reg2: "https://resulta-reg2.walla.workers.dev/api/result", // REPLACE
+    le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
 const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
+const LAZY_LOAD_DELAY = 40; // Milliseconds between showing each student
 
 // --- Helper Maps ---
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
@@ -20,10 +21,7 @@ const romanToArabicMap = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII
 const getRomanSemester = (semId) => arabicToRomanMap[semId] || '';
 const getArabicSemester = (roman) => roman ? romanToArabicMap[roman.toUpperCase()] || 0 : 0;
 
-/**
- * --- Helper Function to Fetch from a Worker ---
- * Fetches data, ensures response is an array, handles errors consistently.
- */
+// --- Fetch Worker Data Helper ---
 async function fetchWorkerData(workerKey, params) {
     const url = `${WORKER_URLS[workerKey]}?${params}`;
     console.log(`Fetching from ${workerKey}...`);
@@ -31,187 +29,295 @@ async function fetchWorkerData(workerKey, params) {
         const response = await fetch(url);
         if (!response.ok) {
             let errorReason = `Worker ${workerKey} request failed: ${response.status}`;
-            try {
-                const errorJson = await response.json();
-                errorReason = errorJson.error || (Array.isArray(errorJson) && errorJson[0]?.reason) || errorReason;
-            } catch (e) { /* Ignore */ }
+            try { const errorJson = await response.json(); errorReason = errorJson.error || (Array.isArray(errorJson) && errorJson[0]?.reason) || errorReason; } catch (e) { /* Ignore */ }
             throw new Error(errorReason);
         }
         const data = await response.json();
-        if (!Array.isArray(data)) {
-            console.error(`Non-array response from ${workerKey}:`, data);
-            throw new Error(`Worker ${workerKey} returned invalid data format.`);
-        }
+        if (!Array.isArray(data)) { throw new Error(`Worker ${workerKey} invalid data format.`); }
         console.log(`Received ${data.length} results from ${workerKey}`);
         return data;
     } catch (error) {
         console.error(`Error fetching from ${workerKey} (${url}):`, error);
-        // Return error structure consistent with expected format
          const baseRegNo = params.split('&')[0].split('=')[1] || 'Unknown';
-         const batchSize = 5; // Assuming batch size
+         const batchSize = 5; 
          const baseNum = parseInt(baseRegNo.slice(-3)) || 0;
-         // Try to determine the expected range for better error regNos (difficult without full context)
-         // For simplicity, just return errors for the batch based on the input regNo
          const batchRegNos = Array.from({ length: batchSize }, (_, i) => `${baseRegNo.slice(0,-3)}${String(baseNum + i).padStart(3,'0')}`);
+         // Return error structure for the batch
          return batchRegNos.map(rn => ({ regNo: rn, status: 'Error', reason: error.message }));
     }
 }
 
 
 // --- Main Component ---
-const ResultFinder = () => {
+const ResultFinder = ({ selectedExamIdProp }) => {
     // --- State ---
-    const [allExams, setAllExams] = useState([]);
-    const [btechExams, setBtechExams] = useState([]);
-    const [selectedExamId, setSelectedExamId] = useState('');
+    const [selectedExamDetails, setSelectedExamDetails] = useState(null);
     const [regNo, setRegNo] = useState('');
-
-    const [userResult, setUserResult] = useState(null); // Just the user's result object
-    const [classResults, setClassResults] = useState([]); // Filtered results for table
-    const [isLoading, setIsLoading] = useState(false); // Initial user fetch
-    const [loadingStage, setLoadingStage] = useState(''); // Text for loading status
+    
+    const [userResult, setUserResult] = useState(null); // The user's full result object {regNo, status, data, reason}
+    const [classResults, setClassResults] = useState([]); // Students for the table (lazy loaded)
+    const [fetchedDataQueue, setFetchedDataQueue] = useState([]); // Temp store for one-by-one lazy load
+    const [errorList, setErrorList] = useState([]); // Store regNos that failed
+    
+    const [isLoading, setIsLoading] = useState(false); // Combined loading state
+    const [loadingStage, setLoadingStage] = useState('');
+    const [progress, setProgress] = useState({ percent: 0, loaded: 0, total: 0, stage: '' }); // Progress state
     const [error, setError] = useState(null);
+    
     const [searchPerformed, setSearchPerformed] = useState(false);
-    const [lastSearchParams, setLastSearchParams] = useState(null); // For retry
-    const [showLoadMore, setShowLoadMore] = useState(false); // Show/hide Load More button
-    const [isLoadingMore, setIsLoadingMore] = useState(false); // Loading state for Reg2 fetch
+    const [lastSearchParams, setLastSearchParams] = useState(null);
+    const [showLoadMore, setShowLoadMore] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false); // Separate state for "load more" button
+    const [fetchedReg2, setFetchedReg2] = useState(false);
+    
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedStudentData, setSelectedStudentData] = useState(null);
-    const [fetchedReg2, setFetchedReg2] = useState(false); // Track if reg2 was loaded
 
-    // --- Fetch Exam List ---
+    // --- Fetch Exam Details ---
     useEffect(() => {
-        const fetchExams = async () => {
-             setError(null); console.log("Fetching exam list...");
+        if (!selectedExamIdProp) return;
+        const fetchExamDetails = async () => {
+            console.log(`Fetching details for examId: ${selectedExamIdProp}`);
+            setError(null); 
             try {
-                const response = await fetch(BEU_EXAM_LIST_URL); if (!response.ok) throw new Error(`BEU API Error: ${response.status}`);
-                const data = await response.json(); setAllExams(data);
-                const btechCourse = data.find(c => c.courseName === "B.Tech");
-                if (btechCourse?.exams) {
-                    const sorted = [...btechCourse.exams].sort((a, b) => (a.semId !== b.semId) ? b.semId - a.semId : a.examName.localeCompare(b.examName));
-                    setBtechExams(sorted); if (sorted.length > 0) setSelectedExamId(sorted[0].id.toString()); else setError("No B.Tech exams found.");
-                    console.log("Exam list loaded.");
-                } else { setError("B.Tech course/exams not found."); }
-            } catch (err) { console.error("Failed fetch exam list:", err); setError(`Could not load exam list: ${err.message}`); }
+                const response = await fetch(BEU_EXAM_LIST_URL);
+                if (!response.ok) throw new Error(`BEU API Error: ${response.status}`);
+                const data = await response.json();
+                let foundExam = null;
+                for (const course of data) {
+                    if (course.exams) {
+                        foundExam = course.exams.find(ex => ex.id.toString() === selectedExamIdProp);
+                        if (foundExam) break;
+                    }
+                }
+                if (foundExam) {
+                    setSelectedExamDetails(foundExam);
+                    console.log("Exam details set:", foundExam);
+                } else {
+                    setError(`Exam details for ID ${selectedExamIdProp} not found.`);
+                }
+            } catch (err) {
+                console.error("Failed to fetch exam details:", err);
+                setError(`Could not load exam details: ${err.message}`);
+            }
         };
-        fetchExams();
-    }, []);
+        fetchExamDetails();
+    }, [selectedExamIdProp]);
 
-    // --- Get Selected Exam Details ---
+    // --- Get Selected Exam Details (Helper) ---
     const getSelectedExamDetails = useCallback(() => {
-         let exam = btechExams.find(exam => exam.id.toString() === selectedExamId);
-        if (!exam) { for (const course of allExams) { exam = course.exams.find(ex => ex.id.toString() === selectedExamId); if (exam) break; } }
-        return exam;
-    }, [btechExams, selectedExamId, allExams]);
+        return selectedExamDetails;
+    }, [selectedExamDetails]);
 
-     // --- Merge, Unique, Sort Helper - Filters "Record not found" ---
+    // --- Merge, Unique, Sort Helper (Filters "Record not found") ---
      const mergeAndSortResults = (existingResults, newResults) => {
          const resultMap = new Map(existingResults.map(item => [item.regNo || `error-${Math.random()}`, item]));
          newResults.forEach(item => {
-             // Exclude "Record not found" UNLESS it's the specific user being searched
-             if (item.status !== 'Record not found' || item.regNo === regNo) {
+             // Exclude "Record not found" COMPLETELY
+             if (item.status !== 'Record not found') {
                  const existing = resultMap.get(item.regNo);
-                 // Prioritize non-error status if merging duplicates
+                 // Prioritize non-error status
                  if (!existing || (existing.status === 'Error' && item.status !== 'Error') || !item.regNo) {
                     resultMap.set(item.regNo || `error-${Math.random()}`, item);
                  }
              } else {
-                 // If it's "Record not found" and NOT the searched user, ensure it's removed
-                 if (resultMap.has(item.regNo)) {
-                     resultMap.delete(item.regNo);
-                 }
+                 if (resultMap.has(item.regNo)) { resultMap.delete(item.regNo); }
              }
          });
-         // Convert back to array and sort
          return Array.from(resultMap.values()).sort((a,b) => {
-              const aIsValid = a.regNo && !a.regNo.startsWith('Error') && a.regNo !== 'Unknown'; const bIsValid = b.regNo && !b.regNo.startsWith('Error') && b.regNo !== 'Unknown'; if (aIsValid && !bIsValid) return -1; if (!aIsValid && bIsValid) return 1; if (!aIsValid && !bIsValid) return 0; const aNum = parseInt(a.regNo.slice(-3)); const bNum = parseInt(b.regNo.slice(-3)); if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum; return (a.regNo || "").localeCompare(b.regNo || "");
+              const aIsValid = a.regNo && !a.regNo.startsWith('Error') && a.regNo !== 'Unknown';
+              const bIsValid = b.regNo && !b.regNo.startsWith('Error') && b.regNo !== 'Unknown';
+              if (aIsValid && !bIsValid) return -1;
+              if (!aIsValid && bIsValid) return 1;
+              if (!aIsValid && !bIsValid) return 0;
+              const aNum = parseInt(a.regNo.slice(-3));
+              const bNum = parseInt(b.regNo.slice(-3));
+              if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+              return (a.regNo || "").localeCompare(b.regNo || "");
          });
      };
+     
+    // --- One-by-one Lazy Load Effect ---
+    useEffect(() => {
+        if (fetchedDataQueue.length === 0) {
+             if (isLoading || isLoadingMore) {
+                 // Still fetching, but queue is empty, update stage
+                 setProgress(prev => ({...prev, stage: prev.stage.includes("Fetching") ? prev.stage : "Processing..."}));
+             } else if (searchPerformed) {
+                 // All done
+                 setLoadingStage('');
+                 setProgress(prev => ({...prev, stage: `Loaded ${prev.loaded} students.`}));
+             }
+            return; // Queue empty
+        }
+
+        // --- 40 Second Delay Logic ---
+        // If this is the *first* student in the queue, AND it's not a retry,
+        // AND the user's result hasn't been shown yet, apply the long delay.
+        // --- REMOVED --- We're holding user result display until after reg1/le fetch now.
+        // Instead, the long delay is simulated by the *total fetch time*.
+        // We just use the short lazy load delay here.
+
+        const timer = setTimeout(() => {
+            const student = fetchedDataQueue[0];
+            
+            // Add student to the *visible* class results
+            // (Filter user again just in case, though they are shown separately)
+            if(student.regNo !== regNo) {
+                 setClassResults(prev => mergeAndSortResults(prev, [student]));
+            }
+            
+            // Update progress
+            setProgress(prev => {
+                const loaded = prev.loaded + 1;
+                const percent = Math.round((loaded / prev.total) * 100);
+                return {
+                    ...prev,
+                    loaded: loaded,
+                    percent: percent > 100 ? 100 : percent,
+                    stage: `Processing... (${loaded} / ${prev.total} students found)`
+                };
+            });
+            
+            // Remove processed student from queue
+            setFetchedDataQueue(prev => prev.slice(1));
+        }, LAZY_LOAD_DELAY); 
+
+        return () => clearTimeout(timer); 
+
+    }, [fetchedDataQueue, regNo, isLoading, isLoadingMore, searchPerformed]);
 
 
     // --- Search Function ---
     const executeSearch = useCallback(async (isRetry = false) => {
-        const examDetails = getSelectedExamDetails();
-        if (!examDetails || !regNo || !/^\d{11}$/.test(regNo)) { setError("Please select valid exam & 11-digit reg no."); setIsLoading(false); return; }
+        if (!selectedExamDetails || !regNo || !/^\d{11}$/.test(regNo)) { setError("Please select valid exam & 11-digit reg no."); setIsLoading(false); return; }
 
-        setIsLoading(true); setLoadingStage('Fetching your result...'); setError(null); setShowLoadMore(false); setFetchedReg2(false);
-        if (!isRetry) { setUserResult(null); setClassResults([]); setSearchPerformed(true); }
-        else { setError(null); } // Clear errors on retry
+        setIsLoading(true); setLoadingStage('Starting search...'); setError(null); setShowLoadMore(false); setFetchedReg2(false);
+        if (!isRetry) { setUserResult(null); setClassResults([]); setSearchPerformed(true); setFetchedDataQueue([]); setErrorList([]); }
+        else { setError(null); setFetchedDataQueue([]); setErrorList([]); } // Clear on retry
 
-        const year = examDetails.batchYear; const semesterRoman = getRomanSemester(examDetails.semId); const examHeld = examDetails.examHeld;
+        const year = selectedExamDetails.batchYear; const semesterRoman = getRomanSemester(selectedExamDetails.semId); const examHeld = selectedExamDetails.examHeld;
         const params = `reg_no=${regNo}&year=${year}&semester=${semesterRoman}&exam_held=${encodeURIComponent(examHeld)}`;
         setLastSearchParams(params);
 
         let encounteredError = false;
+        let tempErrorList = [];
+        let userResultObject = null; // Store user result temporarily
+        
+        // Estimate total batches for initial progress
+        const estTotalBatches = 1 + 12 + 12; // User(1) + Reg1(12) + LE(12)
+        let batchesLoaded = 0;
+        setProgress({ percent: 0, loaded: 0, total: 0, stage: 'Initializing...'});
 
         try {
             // 1. Fetch User Batch FIRST
-            // Simulate delay for loading feel
-            // await new Promise(resolve => setTimeout(resolve, 500));
+            setLoadingStage('Fetching your result (Batch 1/25)...');
             const userBatchData = await fetchWorkerData('user', params);
+            batchesLoaded++;
+            setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Processing user data...'}));
+            
             const foundUser = userBatchData.find(r => r.regNo === regNo);
-            setUserResult(foundUser || { regNo: regNo, status: 'Not Found', reason: 'Not in initial response' });
-            if (foundUser?.status !== 'success') {
-                 setError(prev => prev || `Result status for ${regNo}: ${foundUser?.status || 'Not Found'}${foundUser?.reason ? ` - ${foundUser?.reason}`: ''}`);
-                 if (foundUser?.status === 'Error') encounteredError = true;
+            userResultObject = foundUser || { regNo: regNo, status: 'Not Found', reason: 'Not in initial response' };
+            
+            if (userResultObject?.status !== 'success') {
+                 if (userResultObject?.status === 'Error') {
+                     encounteredError = true;
+                     tempErrorList = tempErrorList.concat(userBatchData.filter(r => r.status === 'Error').map(r => r.regNo));
+                 }
+                 if (userResultObject.status !== 'Record not found' && userResultObject.status !== 'Not Found') {
+                    setError(prev => prev || `Result status for ${regNo}: ${userResultObject?.status}${userResultObject?.reason ? ` - ${userResultObject?.reason}`: ''}`);
+                 }
             } else { setError(null); }
-            setIsLoading(false); // User fetch complete
+            
+            // --- HOLD USER RESULT ---
 
             // 2. Fetch Reg1 + LE Serially
+            let reg1Data = [], leData = [];
+
             setLoadingStage('Loading class results (1-60)...');
-            // await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
-            const reg1Data = await fetchWorkerData('reg1', params);
-            if (reg1Data.some(r => r.status === 'Error')) encounteredError = true;
-            setClassResults(prev => mergeAndSortResults(prev, reg1Data)); // Filter happens in merge func
-
-            setLoadingStage('Loading results (LE 901-960)...');
-             // await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
-            const leData = await fetchWorkerData('le', params);
-            if (leData.some(r => r.status === 'Error')) encounteredError = true;
-            setClassResults(prev => mergeAndSortResults(prev, leData)); // Filter happens in merge func
-
-            // 3. Show "Load More" button conditionally
-            const suffixNum = parseInt(regNo.slice(-3));
-            const userIsPotentiallyInReg2 = !isNaN(suffixNum) && suffixNum >= 61 && suffixNum < 900;
-            // Only show if user might be in reg2 or if the probe succeeded (indicating possible large college)
-            if (userIsPotentiallyInReg2 || (foundUser?.status === 'success')) {
-                 setShowLoadMore(true);
+            reg1Data = await fetchWorkerData('reg1', params);
+            batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Loading LE results...'}));
+            if (reg1Data.some(r => r.status === 'Error')) {
+                encounteredError = true;
+                tempErrorList = tempErrorList.concat(reg1Data.filter(r => r.status === 'Error').map(r => r.regNo));
             }
+            
+            setLoadingStage('Loading results (LE 901-960)...');
+            leData = await fetchWorkerData('le', params);
+             batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            setProgress(prev => ({...prev, percent: 100, stage: 'Finalizing...'}));
+            if (leData.some(r => r.status === 'Error')) {
+                encounteredError = true;
+                tempErrorList = tempErrorList.concat(leData.filter(r => r.status === 'Error').map(r => r.regNo));
+            }
+            
+            // 3. --- DISPLAY USER RESULT NOW ---
+            console.log("Displaying User Result Now (After Hold)");
+            setUserResult(userResultObject); // <-- Triggers display of user's detailed result
+            
+            // 4. --- Start Lazy Loading Class Results ---
+            const combinedClassData = [...reg1Data, ...leData];
+            const filteredClassData = combinedClassData.filter(r => r.status !== 'Record not found');
+            
+            // Set total for progress bar based on *found* students
+            const totalStudentsFound = filteredClassData.length; // Don't include user
+            setProgress({ percent: 0, loaded: 0, total: totalStudentsFound, stage: `Loading ${totalStudentsFound} students...`});
+            
+            // Add to lazy load queue (this triggers the useEffect)
+            setFetchedDataQueue(filteredClassData);
+            
+            // 5. Show "Load More" button
+            setShowLoadMore(true);
 
         } catch (error) {
             console.error("Critical error during search:", error); setError(`Unexpected error: ${error.message}`); encounteredError = true; setIsLoading(false);
         } finally {
-            setLoadingStage('');
+            setIsLoading(false); // Main search logic finished
+            // setLoadingStage(''); // Handled by lazy load effect
             if (encounteredError) {
-                 setError(prevError => { const failMsg = "Some results failed. Try 'Retry Failed'."; return prevError ? (prevError.includes(failMsg) ? prevError : `${prevError} | ${failMsg}`) : failMsg; });
+                 setError(prevError => { const failMsg = "Some results failed. See list below."; return prevError ? (prevError.includes(failMsg) ? prevError : `${prevError} | ${failMsg}`) : failMsg; });
             }
-             // Ensure final sort
-             setClassResults(prev => mergeAndSortResults(prev, []));
+             setErrorList(prev => mergeAndSortResults(prev, tempErrorList.map(r => ({regNo: r, status: 'Error', reason: 'Failed to fetch'})) ).map(r => r.regNo) ); // Update error list
         }
-    }, [regNo, selectedExamId, getSelectedExamDetails, btechExams]);
+    }, [regNo, selectedExamDetails]);
 
-    // --- Fetch Reg2 Results ---
+    // --- Fetch Reg2 Results (Lazy Load One-by-One) ---
     const fetchReg2Results = async () => {
          if (!lastSearchParams) return;
          setIsLoadingMore(true); setLoadingStage('Loading results (61-120)...'); setError(null);
-
+         
+         const oldTotal = progress.total;
+         const oldLoaded = progress.loaded;
+         const newBatches = (120 - 60) / BATCH_STEP; // 12 batches
+         const estimatedNewTotal = oldTotal + (newBatches * 4); // Guess 4 students per batch
+         setProgress({ percent: Math.round((oldLoaded / estimatedNewTotal) * 100), loaded: oldLoaded, total: estimatedNewTotal, stage: 'Loading results (61-120)...'});
+         
          try {
-             // await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate delay
              const reg2Data = await fetchWorkerData('reg2', lastSearchParams);
-             setClassResults(prev => mergeAndSortResults(prev, reg2Data)); // Filter happens in merge func
+             const filteredReg2Data = reg2Data.filter(r => r.status !== 'Record not found');
+             
+             // Update total count to be accurate
+             const accurateTotal = oldLoaded + filteredReg2Data.length;
+             setProgress(prev => ({...prev, total: accurateTotal}));
+
              if (reg2Data.some(r => r.status === 'Error')) {
-                  setError("Some results (61-120) failed. Use 'Retry Failed'.");
+                  setError("Some results (61-120) failed. Check error list.");
+                  setErrorList(prev => [...new Set([...prev, ...reg2Data.filter(r => r.status === 'Error').map(r => r.regNo)])].sort());
              }
-             setShowLoadMore(false); // Hide button after attempt
-             setFetchedReg2(true);
+             
+             // Add to lazy load queue
+             setFetchedDataQueue(prev => [...prev, ...filteredReg2Data]);
+
+             setShowLoadMore(false); setFetchedReg2(true);
          } catch (error) {
               console.error("Critical fetch Reg2:", error); setError(`Failed load (61-120): ${error.message}`);
          } finally {
-              setIsLoadingMore(false); setLoadingStage('');
-              // Ensure final sort after loading more
-              setClassResults(prev => mergeAndSortResults(prev, []));
+              setIsLoadingMore(false); 
+              // setLoadingStage(''); // Handled by lazy load
          }
     };
+
 
     // --- Event Handlers & Modal ---
     const handleSearch = (e) => { e.preventDefault(); executeSearch(false); };
@@ -222,18 +328,23 @@ const ResultFinder = () => {
     };
     const closeModal = () => setModalOpen(false);
 
-    // --- PDF Generation ---
-    const generatePdf = () => { /* ... (generate SUMMARY Pdf - Filter "Record not found") ... */
-         // Use the current classResults state + userResult if successful
-         const resultsForPdf = userResult?.status === 'success' ? [userResult, ...classResults] : [...classResults];
-         const successfulResults = resultsForPdf.filter(res => res.status === 'success');
-         successfulResults.sort((a,b) => (a.regNo || "").localeCompare(b.regNo || ""));
 
-        if (successfulResults.length === 0) { alert("No successful results found to generate PDF."); return; }
+    // --- PDF Generation ---
+    const generatePdf = () => {
+         let resultsForPdf = [];
+         if (userResult?.status === 'success') { resultsForPdf.push(userResult); }
+         resultsForPdf = [...resultsForPdf, ...classResults];
+         const successfulResults = resultsForPdf.filter(res => res.status === 'success');
+         const uniqueResults = Array.from(new Map(successfulResults.map(item => [item.regNo, item])).values());
+         uniqueResults.sort((a,b) => (a.regNo || "").localeCompare(b.regNo || ""));
+
+        if (uniqueResults.length === 0) { alert("No successful results found to generate PDF."); return; }
+        
+        alert(`Generating PDF... This may take a moment for ${uniqueResults.length} students.`);
 
         const doc = new jsPDF({ orientation: 'landscape' });
         const tableColumn = ["Reg No", "Name", "SGPA", "CGPA", "Result"];
-        const tableRows = successfulResults.map(result => {
+        const tableRows = uniqueResults.map(result => {
              const currentSem = getArabicSemester(result.data?.semester);
              return [ result.regNo, result.data?.name||'N/A', result.data?.sgpa?.[currentSem - 1] ?? 'N/A', result.data?.cgpa||'N/A', result.data?.fail_any||'N/A', ]; });
 
@@ -241,33 +352,42 @@ const ResultFinder = () => {
         doc.setFontSize(16); doc.setFont(undefined, 'bold'); doc.text(`BEU Results - ${examDetails?.examName || 'Exam'}`, 14, 22);
         doc.setFont(undefined, 'normal'); doc.setFontSize(11); doc.setTextColor(100);
         doc.text(`Session: ${examDetails?.session || 'N/A'} | Exam Held: ${examDetails?.examHeld || 'N/A'}`, 14, 28); doc.setTextColor(0);
+         doc.text(`Total Students Found: ${uniqueResults.length}`, 14, 34);
 
-        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 35, theme: 'grid', headStyles: { fillColor: [22, 160, 133], textColor: 255 }, styles: { fontSize: 8, cellPadding: 1.5 }, alternateRowStyles: { fillColor: [245, 245, 245] }, didDrawPage: (data) => { /* Footer */ doc.setFontSize(8); doc.setTextColor(100); doc.text('Generated via BeuMate App (Concept) - ' + new Date().toLocaleString(), data.settings.margin.left, doc.internal.pageSize.height - 10); } });
 
-        const searchedStudentSuccess = successfulResults.find(r => r.regNo === regNo);
-        if (searchedStudentSuccess && searchedStudentSuccess.data) { addStudentDetailToPdf(doc, searchedStudentSuccess.data); }
+        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 40, theme: 'grid', headStyles: { fillColor: [22, 160, 133], textColor: 255 }, styles: { fontSize: 8, cellPadding: 1.5 }, alternateRowStyles: { fillColor: [245, 245, 245] }, didDrawPage: (data) => { /* Footer */ doc.setFontSize(8); doc.setTextColor(100); doc.text('Page ' + doc.internal.getNumberOfPages() + ' | Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), data.settings.margin.left, doc.internal.pageSize.height - 10); } });
 
-        doc.save(`BEU_Results_${examDetails?.semId || 'Sem'}_${examDetails?.batchYear || 'Year'}_ClassSummary.pdf`);
+        // Add details page FOR EACH student
+         console.log(`PDF: Adding ${uniqueResults.length} detailed pages...`);
+         uniqueResults.forEach((student, index) => {
+             console.log(`PDF: Adding page for ${student.regNo}`);
+             addStudentDetailToPdf(doc, student.data, index + 2, examDetails, true); // Pass true for watermark
+         });
+
+        doc.save(`BEU_Results_${examDetails?.semId || 'Sem'}_${examDetails?.batchYear || 'Year'}_FullClass.pdf`);
     };
 
-    const generateSinglePdf = () => { /* ... (generate DETAILED Pdf for user - same) ... */
+    const generateSinglePdf = () => {
          if (!userResult || userResult.status !== 'success' || !userResult.data) { alert('Your result was not found successfully.'); return; }
-          const doc = new jsPDF({ orientation: 'portrait' }); addStudentDetailToPdf(doc, userResult.data); const examDetails = getSelectedExamDetails();
-          doc.save(`BEU_Result_${userResult.regNo}_${examDetails?.semId || 'Sem'}.pdf`);
+          const doc = new jsPDF({ orientation: 'portrait' }); 
+          addStudentDetailToPdf(doc, userResult.data, 1, getSelectedExamDetails(), true); // Pass true for watermark
+          doc.save(`BEU_Result_${userResult.regNo}_${selectedExamDetails?.semId || 'Sem'}.pdf`);
     };
 
      // Helper to add detailed student result page(s) to PDF
-     const addStudentDetailToPdf = (doc, data) => { /* ... (Keep improved version with page breaks) ... */
+     const addStudentDetailToPdf = (doc, data, pageNum, examDetails, addWatermark = false) => {
           let yPos = 20; const pageHeight = doc.internal.pageSize.height; const bottomMargin = 20; const leftMargin = 14; const rightMargin = doc.internal.pageSize.width - 14;
+        if (!examDetails) examDetails = getSelectedExamDetails();
 
         // --- Header ---
-        doc.setFontSize(14); doc.setFont(undefined, 'bold'); doc.text("BIHAR ENGINEERING UNIVERSITY, PATNA", doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 6; const examDetails = getSelectedExamDetails();
+        doc.setFontSize(14); doc.setFont(undefined, 'bold'); doc.text("BIHAR ENGINEERING UNIVERSITY, PATNA", doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 6;
         doc.setFontSize(12); doc.setFont(undefined, 'normal'); doc.text(examDetails?.examName || 'Exam Result', doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 10;
 
         // --- Student Info ---
         doc.setFontSize(10); doc.text(`Registration No: ${data.redg_no || 'N/A'}`, leftMargin, yPos); doc.text(`Semester: ${data.semester || 'N/A'}`, rightMargin - 40, yPos); yPos += 6; doc.text(`Student Name: ${data.name || 'N/A'}`, leftMargin, yPos); yPos += 6; doc.text(`College: ${data.college_name || 'N/A'} (${data.college_code || 'N/A'})`, leftMargin, yPos); yPos += 6; doc.text(`Course: ${data.course || 'N/A'} (${data.course_code || 'N/A'})`, leftMargin, yPos); yPos += 10;
 
         const checkPageBreak = (currentY, requiredHeight) => { if (currentY + requiredHeight > pageHeight - bottomMargin) { doc.addPage(); return 20; } return currentY; };
+        const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
 
         // --- Theory Subjects ---
         if (data.theorySubjects?.length > 0) { yPos = checkPageBreak(yPos, (data.theorySubjects.length + 1) * 7 + 15); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("Theory Subjects", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); doc.autoTable({ head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]], body: data.theorySubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']), startY: yPos, theme: 'grid', styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fontSize: 8, fillColor: [220, 220, 220], textColor: 0 }, alternateRowStyles: { fillColor: [248, 248, 248] }, pageBreak: 'auto', bodyStyles: { minCellHeight: 6 } }); yPos = doc.lastAutoTable.finalY + 8; }
@@ -281,68 +401,169 @@ const ResultFinder = () => {
         // --- SGPA History Table ---
         if (data.sgpa?.some(s => s !== null)) { yPos = checkPageBreak(yPos, 25); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("SGPA History", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); const sgpaCols = [["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]]; const sgpaRowPadded = [...(data.sgpa || [])]; while(sgpaRowPadded.length < 8) sgpaRowPadded.push(null); const sgpaRow = sgpaRowPadded.map(s => s ?? 'NA'); doc.autoTable({ head: sgpaCols, body: [sgpaRow], startY: yPos, theme: 'plain', styles: { fontSize: 9, cellPadding: 1, halign: 'center' }, headStyles: { fontSize: 9, fontStyle: 'bold' } }); yPos = doc.lastAutoTable.finalY + 8; }
 
-        // --- Remarks / Fail Subjects ---
-         if (data.fail_any && data.fail_any !== 'PASS') { yPos = checkPageBreak(yPos, 15); doc.setFontSize(10); doc.setTextColor(255, 0, 0); doc.setFont(undefined, 'bold'); doc.text(`Remarks: ${data.fail_any}`, leftMargin, yPos); yPos+=6; doc.setTextColor(0); doc.setFont(undefined, 'normal'); }
+        // --- Remarks / Fail Subjects (Show NAMES) ---
+         if (data.fail_any && data.fail_any !== 'PASS') { 
+             yPos = checkPageBreak(yPos, 15);
+             doc.setFontSize(10); doc.setTextColor(255, 0, 0); doc.setFont(undefined, 'bold');
+             doc.text(`Remarks: ${data.fail_any.split(':')[0]}`, leftMargin, yPos); yPos+=6;
+             
+             const failedCodes = data.fail_any.replace("FAIL:", "").split(',').map(code => code.trim());
+             failedCodes.forEach(code => {
+                 const subject = allSubjects.find(s => s.code === code);
+                 if(subject) {
+                     yPos = checkPageBreak(yPos, 6);
+                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0); // Darker red
+                     doc.text(`- ${subject.name} (${subject.code})`, leftMargin + 5, yPos); yPos+=6;
+                 }
+             });
+             
+             doc.setTextColor(0); doc.setFont(undefined, 'normal'); 
+         }
 
          // --- Publish Date ---
          if(examDetails?.publishDate){ yPos = checkPageBreak(yPos, 10); doc.setFontSize(9); doc.setTextColor(100); doc.text(`Publish Date: ${new Date(examDetails.publishDate).toLocaleDateString()}`, leftMargin, yPos); doc.setTextColor(0); yPos += 10; }
 
-          // Footer
-          doc.setFontSize(8); doc.setTextColor(100); doc.text('Generated via BeuMate App (Concept) - ' + new Date().toLocaleString(), leftMargin, pageHeight - 10);
+          // --- Watermark ---
+          if (addWatermark) {
+             // Add watermark *before* footer
+             const watermarkText = "resulta.beunotes.workers.dev"; // Your website name
+             doc.setFontSize(50); // Large font
+             doc.setTextColor(230, 230, 230); // Light grey color
+             doc.setFont(undefined, 'bold');
+             // Center and rotate
+             doc.text(watermarkText, doc.internal.pageSize.width / 2, doc.internal.pageSize.height / 2, { angle: -45, align: 'center' });
+             doc.setTextColor(0); // Reset color
+             doc.setFont(undefined, 'normal');
+          }
+
+          // --- Page Footer ---
+          doc.setFontSize(8); doc.setTextColor(100);
+          const pageStr = pageNum ? `Page ${pageNum} | ` : '';
+          doc.text(pageStr + 'Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), leftMargin, pageHeight - 10);
+     };
+
+     // --- Helper: Render Full Detailed Result (as a React Component) ---
+     const DetailedResultView = ({ studentResult }) => {
+         if (!studentResult || studentResult.status !== 'success' || !studentResult.data) {
+             return null; // Don't render if no success data
+         }
+         const data = studentResult.data;
+         const examDetails = getSelectedExamDetails();
+         const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
+
+         return (
+             <div className={styles.detailedResultScrollable}>
+                 <p><strong>Registration No:</strong> {data.redg_no} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; <strong>Semester:</strong> {data.semester}</p>
+                 <p><strong>Student Name:</strong> {data.name}</p>
+                 <p><strong>College:</strong> {data.college_name} ({data.college_code})</p>
+                 <p><strong>Course:</strong> {data.course} ({data.course_code})</p>
+
+                 <hr/><h3>Theory Subjects</h3>
+                 {data.theorySubjects?.length > 0 ? (
+                    <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
+                    {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
+                 ) : <p>No theory subjects.</p>}
+
+                 <hr/><h3>Practical Subjects</h3>
+                 {data.practicalSubjects?.length > 0 ? (
+                    <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
+                    {data.practicalSubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
+                  ): <p>No practical subjects.</p>}
+                 
+                 <hr/><div style={{marginTop: '15px'}}>
+                  <p><strong>SGPA (Current Sem):</strong> {data.sgpa?.[getArabicSemester(data.semester) - 1] ?? 'N/A'}</p>
+                  <p><strong>CGPA:</strong> {data.cgpa || 'N/A'}</p>
+                  <p><strong>Status:</strong> <span className={data.fail_any?.includes('PASS') ? styles.passStatus : styles.failStatus}>{data.fail_any || 'N/A'}</span></p>
+                 </div>
+
+                {data.sgpa?.some(s => s !== null) && ( <> <hr/><h3 style={{marginTop: '15px'}}>SGPA History</h3> <table className={styles.modalTable}><thead><tr><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th><th>VI</th><th>VII</th><th>VIII</th></tr></thead><tbody><tr>{Array.from({ length: 8 }).map((_, i) => <td key={i} style={{textAlign:'center'}}>{data.sgpa[i] ?? 'NA'}</td>)}</tr></tbody></table></> )}
+                
+                {data.fail_any && data.fail_any !== 'PASS' && ( 
+                    <> 
+                        <hr/> <h3 style={{marginTop: '15px', color: '#dc3545'}}>Remarks: {data.fail_any.split(':')[0]}</h3>
+                        <ul style={{color: '#dc3545', fontSize: '0.9em'}}>
+                            {data.fail_any.replace("FAIL:", "").split(',').map(code => code.trim()).map(code => {
+                                const subject = allSubjects.find(s => s.code === code);
+                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={code}>{code}</li>;
+                            })}
+                        </ul>
+                    </> 
+                )}
+                 {examDetails?.publishDate && (
+                     <p style={{fontSize: '0.9em', color: '#6c757d', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
+                         Publish Date: {new Date(examDetails.publishDate).toLocaleDateString()}
+                     </p>
+                 )}
+             </div>
+         );
      };
 
 
     // --- JSX ---
     return (
         <div className={styles.container}>
-            <h1 className={styles.title}>BEU Result Finder (B.Tech)</h1>
+            <h1 className={styles.title}>{selectedExamDetails?.examName || 'B.Tech Result Finder'}</h1>
+            <p style={{textAlign: 'center', marginTop: '-25px', marginBottom: '25px', color: '#555'}}>
+                {selectedExamDetails ? `Session: ${selectedExamDetails.session} | Exam Held: ${selectedExamDetails.examHeld}` : (selectedExamIdProp ? "Loading exam details..." : "No exam selected.")}
+            </Fp>
 
             {/* Input Form */}
             <form onSubmit={handleSearch} className={styles.form}>
-                <div className={styles.formGroup}>
-                     <label htmlFor="examSelect">Select Exam:</label>
-                    <select id="examSelect" value={selectedExamId} onChange={(e) => setSelectedExamId(e.target.value)} required disabled={btechExams.length === 0} >
-                        {btechExams.length === 0 && <option value="">Loading exams...</option>}
-                        {btechExams.map(exam => ( <option key={exam.id} value={exam.id}> {exam.examName} ({exam.session}) [{exam.examHeld}] </option> ))}
-                    </select>
-                </div>
-                <div className={styles.formGroup}>
+                 <div className={styles.formGroup}>
                      <label htmlFor="regNoInput">Registration No:</label>
                     <input id="regNoInput" type="text" value={regNo} onChange={(e) => setRegNo(e.target.value.replace(/\D/g, ''))} required pattern="\d{11}" maxLength="11" title="Enter 11 digit Reg No" placeholder="e.g., 22104134001" />
                 </div>
                 <div className={styles.buttonGroup}>
-                    <button type="submit" disabled={isLoading || isLoadingMore || !selectedExamId || !regNo} className={`${styles.button} ${styles.buttonPrimary}`} >
-                         {isLoading || isLoadingMore ? (loadingStage || 'Loading...') : 'Search Results'}
+                    <button type="submit" disabled={isLoading || isLoadingMore || !selectedExamDetails || !regNo} className={`${styles.button} ${styles.buttonPrimary}`} >
+                         {isLoading || isLoadingMore ? 'Loading...' : 'Search Results'}
                     </button>
-                    {searchPerformed && !isLoading && !isLoadingMore && (classResults.filter(r=>r.status === 'success').length > 0 || userResult?.status === 'success') && (
+                    {searchPerformed && !isLoading && !isLoadingMore && (userResult?.status === 'success') && (
+                        <button type"button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
+                    )}
+                    {searchPerformed && !isLoading && !isLoadingMore && (classResults.length > 0) && (
                         <button type="button" onClick={generatePdf} className={`${styles.button} ${styles.buttonSuccess}`} > Download Class PDF </button>
                     )}
-                    {userResult?.status === 'success' && !isLoading && !isLoadingMore && (
-                        <button type="button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
-                    )}
                     {error && searchPerformed && !isLoading && !isLoadingMore && (
-                        <button type="button" onClick={handleRetry} className={`${styles.button} ${styles.buttonWarning}`} > Retry Failed </button>
+                        <button type="button" onClick={handleRetry} className={`${styles.button} ${styles.buttonWarning}`} > Re-Check Failed </button>
                     )}
                 </div>
             </form>
 
-            {/* Status Messages */}
-            {(isLoading || isLoadingMore) && <div className={styles.loader}>{loadingStage || 'Loading...'}</div>}
+            {/* --- Status Messages & Progress Bar --- */}
+            {(isLoading || isLoadingMore || (loadingStage && searchPerformed)) && (
+                <div className={styles.loader}>
+                    <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
+                    {progress.total > 0 && (
+                        <>
+                            <div className={styles.progressBarContainer}>
+                                <div className={styles.progressBar} style={{ width: `${progress.percent}%` }}></div>
+                            </div>
+                            <div className={styles.progressText}>
+                                {progress.percent < 100 ? 
+                                `Processing: ${progress.loaded} / ${progress.total} students found...` :
+                                `All ${progress.loaded} students processed!`}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
             {error && <div className={styles.errorBox}>⚠️ {error}</div>}
 
-            {/* User Result Display */}
+            {/* --- User Result Display (DETAILED) --- */}
             {userResult && (
                  <div className={`${styles.userResultBox} ${styles[userResult.status?.replace(/\s+/g, '')?.toLowerCase() || 'unknown']}`}>
-                    <h2>Your Result Status</h2>
-                    <p><strong>Reg No:</strong> {userResult.regNo}</p>
-                    {userResult.status === 'success' && userResult.data ? ( <> <p><strong>Name:</strong> {userResult.data.name}</p> <p><strong>College:</strong> {userResult.data.college_name}</p> <p><strong>SGPA (Current Sem):</strong> {userResult.data.sgpa?.[getArabicSemester(userResult.data.semester) - 1] ?? 'N/A'}</p> <p><strong>CGPA:</strong> {userResult.data.cgpa || 'N/A'}</p> <p><strong>Status:</strong> <span className={userResult.data.fail_any?.includes('PASS') ? styles.passStatus : styles.failStatus}>{userResult.data.fail_any || 'N/A'}</span></p> <button onClick={() => openModal(userResult)} className={`${styles.button} ${styles.buttonSecondary}`} style={{marginTop: '10px', padding: '8px 15px', fontSize: '0.9em'}}>View Full Details</button> </> )
-                    : userResult.status === 'Record not found' ? ( <p><strong>Status:</strong> Record not found for this exam.</p> )
-                    : userResult.status === 'Error' ? ( <p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {userResult.reason || 'Failed to fetch'}</p> )
-                    : null }
+                    <h2>Your Result</h2>
+                     {userResult.status === 'success' && userResult.data ? (
+                        <DetailedResultView studentResult={userResult} />
+                    ) : userResult.status === 'Record not found' ? (
+                        <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>
+                    ) : userResult.status === 'Error' ? (
+                        <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {userResult.reason || 'Failed to fetch'}</p></div>
+                    ) : null }
                 </div>
             )}
 
-             {/* Load More Button / Progress Info */}
+             {/* --- Load More Button / Progress Info --- */}
              {searchPerformed && !isLoading && showLoadMore && !isLoadingMore && !fetchedReg2 && (
                  <div className={styles.loadMoreContainer}>
                     <p>Showing results for 1-60 & LE students. Click below to load the remaining results for potentially larger colleges.</p>
@@ -351,20 +572,19 @@ const ResultFinder = () => {
                     </button>
                  </div>
              )}
-             {searchPerformed && !isLoading && !showLoadMore && fetchedReg2 && <div className={styles.progressInfo}>All available results (1-120 & LE) loaded.</div>}
+             {searchPerformed && !isLoading && !isLoadingMore && fetchedReg2 && <div className={styles.progressInfo}>All available results (1-120 & LE) loaded.</div>}
 
-
-            {/* Class Results Table */}
-             {searchPerformed && classResults.length > 0 && <h2 className={styles.tableTitle}>{loadingStage ? loadingStage : 'Class Results (Excluding "Not Found")'}</h2>}
+            {/* --- Class Results Table --- */}
+             {searchPerformed && (classResults.length > 0 || (isLoadingMore || isLoading)) && (
+                <h2 className={styles.tableTitle}>{loadingStage ? loadingStage : 'Class Results (Excluding "Not Found")'}</h2>
+             )}
             {searchPerformed && classResults.length > 0 && (
                 <div className={styles.tableContainer}>
                     <table className={styles.resultsTable}>
-                        <thead>
-                            <tr> <th>Reg No</th> <th>Name</th> <th>SGPA</th> <th>CGPA</th> <th>Status</th> <th>Details / Reason</th> </tr>
-                        </thead>
+                        <thead> <tr> <th>Reg No</th> <th>Name</th> <th>SGPA</th> <th>CGPA</th> <th>Status</th> <th>Details / Reason</th> </tr> </thead>
                         <tbody>
                             {classResults
-                               .filter(result => result.regNo !== userResult?.regNo) // Filter out user row if shown above
+                               .filter(result => result.regNo !== userResult?.regNo) // Filter out user row
                                .map((result, index) => (
                                 <tr key={result.regNo || `error-${index}`}
                                     className={`${result.status === 'Error' ? styles.errorRow : ''}`}
@@ -384,36 +604,27 @@ const ResultFinder = () => {
                     </table>
                 </div>
             )}
+            
+            {/* --- Error List Box --- */}
+            {searchPerformed && !isLoading && !isLoadingMore && errorList.length > 0 && (
+                 <div className={`${styles.errorBox}`} style={{marginTop: '30px', textAlign: 'left', borderColor: '#ffc107', backgroundColor: '#fff3cd', color: '#664d03'}}>
+                    <p style={{fontWeight: 'bold', marginTop: 0}}>The following registration numbers encountered temporary errors (e.g., Timeout) and were not loaded:</p>
+                    <ul style={{fontSize: '0.9em', listStyle: 'none', paddingLeft: '10px', columns: 3, columnGap: '10px'}}>
+                         {[...new Set(errorList)].map(reg => <li key={reg}>- {reg}</li>)} {/* Ensure unique */}
+                    </ul>
+                     <p style={{marginTop: '10px', fontStyle: 'italic'}}>Click "Re-Check Failed" to try fetching these (and other failed ranges) again.</p>
+                 </div>
+            )}
 
             {/* No results message */}
             {searchPerformed && !isLoading && !userResult && classResults.length === 0 && !error && <p className={styles.noResults}>No results found or loaded yet for the class.</p>}
 
-             {/* Modal for Full Details */}
+             {/* --- Modal for Full Details (Used for Class Results) --- */}
              {modalOpen && selectedStudentData && (
                 <div className={styles.modalBackdrop} onClick={closeModal}>
                     <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                          <button className={styles.modalCloseButton} onClick={closeModal}>&times;</button>
-                        <h2>Detailed Result</h2>
-                        <div className={styles.modalScrollable}>
-                            {/* Student Info */}
-                            <p><strong>Reg No:</strong> {selectedStudentData.redg_no}</p>
-                            <p><strong>Name:</strong> {selectedStudentData.name}</p>
-                             <p><strong>College:</strong> {selectedStudentData.college_name} ({selectedStudentData.college_code})</p>
-                            <p><strong>Course:</strong> {selectedStudentData.course} ({selectedStudentData.course_code})</p>
-                            <p><strong>Semester:</strong> {selectedStudentData.semester}</p>
-                            {/* Theory Table */}
-                            <hr/><h3 style={{marginTop: '15px'}}>Theory Subjects</h3>
-                             {selectedStudentData.theorySubjects?.length > 0 ? ( <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody> {selectedStudentData.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table> ) : <p>No theory subjects.</p>}
-                            {/* Practical Table */}
-                             <hr/><h3 style={{marginTop: '15px'}}>Practical Subjects</h3>
-                             {selectedStudentData.practicalSubjects?.length > 0 ? ( <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody> {selectedStudentData.practicalSubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table> ): <p>No practical subjects.</p>}
-                             {/* Summary */}
-                              <hr/><div style={{marginTop: '15px'}}> <p><strong>SGPA (Current):</strong> {selectedStudentData.sgpa?.[getArabicSemester(selectedStudentData.semester) - 1] ?? 'N/A'}</p> <p><strong>CGPA:</strong> {selectedStudentData.cgpa || 'N/A'}</p> <p><strong>Status:</strong> <span className={selectedStudentData.fail_any?.includes('PASS') ? styles.passStatus : styles.failStatus}>{selectedStudentData.fail_any || 'N/A'}</span></p> </div>
-                               {/* SGPA History */}
-                               {selectedStudentData.sgpa?.some(s => s !== null) && ( <> <hr/><h3 style={{marginTop: '15px'}}>SGPA History</h3> <table className={styles.modalTable}><thead><tr><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th><th>VI</th><th>VII</th><th>VIII</th></tr></thead><tbody><tr>{Array.from({ length: 8 }).map((_, i) => <td key={i}>{selectedStudentData.sgpa[i] ?? 'NA'}</td>)}</tr></tbody></table></> )}
-                               {/* Remarks */}
-                                {selectedStudentData.fail_any && selectedStudentData.fail_any !== 'PASS' && ( <> <hr/> <p style={{marginTop: '15px'}}><strong>Remarks:</strong> <span className={styles.failStatus}>{selectedStudentData.fail_any}</span></p></> )}
-                        </div> {/* End Scrollable */}
+                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success'}} /> {/* Re-use the detailed view component */}
                     </div>
                 </div>
             )}

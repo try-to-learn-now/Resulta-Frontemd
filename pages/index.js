@@ -2,17 +2,13 @@
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import styles from '../styles/Home.module.css';
+import styles from '../styles/Home.module.css'; // This file MUST exist
 
-// --- OLD LINE ---
-// const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
-
-// --- NEW LINE (REPLACE WITH YOUR NEW PROXY WORKER URL) ---
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
+// --- NEW PROXY URL for BEU API ---
+// You MUST create this 5th worker
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
 
 export default function Home() {
-  // ... (rest of the file is correct) ...
-// ... (rest of file) ...
   const [examGroups, setExamGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,13 +18,15 @@ export default function Home() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(BEU_EXAM_LIST_URL);
-        if (!response.ok) throw new Error(`BEU API Error: ${response.status}`);
+        const response = await fetch(BEU_EXAM_LIST_URL); // Call your proxy worker
+        if (!response.ok) {
+           const errData = await response.json();
+           throw new Error(errData.details || `BEU API Error: ${response.status}`);
+        }
         const data = await response.json();
         
         const groups = data.reduce((acc, course) => {
             if (course.exams && course.exams.length > 0) {
-                 // Sort exams within the course
                 const sortedExams = [...course.exams].sort((a, b) => {
                      if(a.semId !== b.semId) return b.semId - a.semId;
                      return a.examName.localeCompare(b.examName);
@@ -61,7 +59,7 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main> {/* main tag gets styling from globals.css */}
+      <main>
         <div className={styles.container}>
             <h1 className={styles.title}>Examination Results</h1>
             <p className={styles.subtitle}>(Select a B.Tech exam below to access results)</p>
@@ -83,24 +81,17 @@ export default function Home() {
                         <tbody>
                             {examGroups.map(group => (
                                 <React.Fragment key={group.courseName}>
-                                    {/* Course Header Row */}
                                     <tr className={styles.courseHeaderRow}>
                                         <td colSpan="4">{group.courseName}</td>
                                     </tr>
-                                    {/* Exam Rows */}
                                     {group.exams.map(exam => (
-                                        <tr 
-                                            key={exam.id} 
-                                            className={`${styles.examRow} ${group.courseName === 'B.Tech' ? styles.examRowBTech : ''}`}
-                                        >
+                                        <tr key={exam.id} className={`${styles.examRow} ${group.courseName === 'B.Tech' ? styles.examRowBTech : ''}`}>
                                             <td className={styles.examName}>
                                                 {group.courseName === 'B.Tech' ? (
-                                                    // Link to the /results page, passing examId
                                                     <Link href={`/results?examId=${exam.id}`} passHref>
                                                         {exam.examName}
                                                     </Link>
                                                 ) : (
-                                                    // Non-B.Tech exams are just text
                                                     exam.examName
                                                 )}
                                             </td>
@@ -120,9 +111,9 @@ export default function Home() {
         </div>
       </main>
 
-      <footer> {/* footer tag gets styling from globals.css */}
+      <footer>
          {/* Empty footer as requested */}
       </footer>
     </>
   );
-}
+                                                  }

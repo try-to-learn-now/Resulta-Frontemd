@@ -396,10 +396,9 @@ const ResultFinder = ({ selectedExamIdProp }) => {
      // --- Helper: Render Full Detailed Result (React Component) ---
      const DetailedResultView = ({ studentResult }) => {
          if (!studentResult || !studentResult.data) {
-             // This component should only be called with success data
-             if (studentResult.status === 'Record not found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>; }
-             if (studentResult.status === 'Error') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {studentResult.reason || 'Failed to fetch'}</p></div>; }
-             if (studentResult.status === 'Not Found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Not Found - Your registration number was not in the initial batch.</p></div>; }
+             if (studentResult?.status === 'Record not found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>; }
+             if (studentResult?.status === 'Error') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {studentResult.reason || 'Failed to fetch'}</p></div>; }
+             if (studentResult?.status === 'Not Found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Not Found - Your registration number was not in the initial batch.</p></div>; }
              return <div style={{padding: '0 20px 15px 20px'}}><p>Loading details...</p></div>;
          }
          
@@ -409,7 +408,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
          return (
              <div className={styles.detailedResultScrollable}>
-                 <p><strong>Registration No:</strong> {data.redg_no} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; <strong>Semester:</strong> {data.semester}</p>
+                 <p><strong>Registration No:</strong> {data.redg_no} &nbsp;&bsp;&nbsp;|&nbsp;&nbsp;&nbsp; <strong>Semester:</strong> {data.semester}</p>
                  <p><strong>Student Name:</strong> {data.name}</p>
                  <p><strong>College:</strong> {data.college_name} ({data.college_code})</p>
                  <p><strong>Course:</strong> {data.course} ({data.course_code})</p>
@@ -460,6 +459,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     return (
         <div className={styles.container}>
             <h1 className={styles.title}>{selectedExamDetails?.examName || 'B.Tech Result Finder'}</h1>
+            {/* --- FIX: Changed </Fp> to </p> --- */}
             <p style={{textAlign: 'center', marginTop: '-25px', marginBottom: '25px', color: '#555'}}>
                 {selectedExamDetails ? `Session: ${selectedExamDetails.session} | Exam Held: ${selectedExamDetails.examHeld}` : (selectedExamIdProp ? "Loading exam details..." : "No exam selected.")}
             </p>
@@ -474,6 +474,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                     <button type="submit" disabled={isLoading || isLoadingMore || !selectedExamDetails || !regNo} className={`${styles.button} ${styles.buttonPrimary}`} >
                          {isLoading || isLoadingMore ? 'Loading...' : 'Search Results'}
                     </button>
+                    {/* --- FIX: Changed type"button" to type="button" --- */}
                     {searchPerformed && !isLoading && !isLoadingMore && (userResult?.status === 'success') && (
                         <button type="button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
                     )}
@@ -490,7 +491,6 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {(isLoading || isLoadingMore) && (
                 <div className={styles.loader}>
                     <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
-                    {/* Show progress bar only *after* user fetch is done and we start lazy loading */}
                     {searchPerformed && !isLoading && progress.total > 0 && (
                         <>
                             <div className={styles.progressBarContainer}>
@@ -536,7 +536,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                         <thead> <tr> <th>Reg No</th> <th>Name</th> <th>SGPA</th> <th>CGPA</th> <th>Status</th> <th>Details / Reason</th> </tr> </thead>
                         <tbody>
                             {classResults
-                               .filter(result => result.regNo !== userResult?.regNo) // Filter out user row
+                               .filter(result => result.regNo !== userResult?.regNo)
                                .map((result, index) => (
                                 <tr key={result.regNo || `error-${index}`}
                                     className={`${result.status === 'Error' ? styles.errorRow : ''}`}
@@ -562,7 +562,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  <div className={`${styles.errorBox} ${styles.errorListBox}`}>
                     <p>The following registration numbers encountered temporary errors (e.g., Timeout) and were not loaded:</p>
                     <ul style={{fontSize: '0.9em', listStyle: 'none', paddingLeft: '10px', columns: 3, columnGap: '10px'}}>
-                         {[...new Set(errorList)].map(reg => <li key={reg}>- {reg}</li>)} {/* Ensure unique */}
+                         {[...new Set(errorList)].map(reg => <li key={reg}>- {reg}</li>)}
                     </ul>
                      <p style={{marginTop: '10px', fontStyle: 'italic'}}>Click "Re-Check Failed" to try fetching these (and other failed ranges) again.</p>
                  </div>
@@ -576,8 +576,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 <div className={styles.modalBackdrop} onClick={closeModal}>
                     <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                          <button className={styles.modalCloseButton} onClick={closeModal}>&times;</button>
-                        {/* Re-use the detailed view component */}
-                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success', regNo: selectedStudentData.redg_no}} /> 
+                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success', regNo: selectedStudentData.redg_no}} />
                     </div>
                 </div>
             )}

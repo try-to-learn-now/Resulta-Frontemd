@@ -7,46 +7,39 @@ body {
     Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
   line-height: 1.6;
   font-size: 16px;
-  background-color: #eef2f5; /* Light grey-blue background */
+  background-color: #eef2f5;
   color: #333;
 }
-
 * {
   box-sizing: border-box;
 }
-
-/* --- Basic Layout & Desktop Force Attempt --- */
 body {
-    /* Force minimum width - users scroll/zoom on small mobile */
-    min-width: 1000px; /* Adjust as needed */
-    overflow-x: auto; /* Allow horizontal scroll if needed */
+    min-width: 1024px; 
+    overflow-x: auto;
 }
-
 main {
-  padding: 1.5rem 1rem; /* Reduced padding slightly */
-  max-width: 1300px; /* Adjust max width */
+  padding: 1.5rem 1rem;
+  max-width: 1300px;
   margin: 20px auto;
   background-color: #ffffff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06); /* Softer shadow */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   border-radius: 8px;
-  min-height: 70vh; /* Ensure main content takes some height */
+  min-height: 70vh;
 }
-
 footer {
   width: 100%;
   padding: 1.5rem 1rem;
-  border-top: 1px solid #dee2e6; /* Lighter border */
+  border-top: 1px solid #dee2e6;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   background-color: #f8f9fa;
   margin-top: 2rem;
-  min-width: 1000px; /* Match body min-width */
+  min-width: 1024px;
   font-size: 0.9em;
   color: #6c757d;
 }
-
 footer a {
   color: #007bff;
   text-decoration: none;
@@ -54,8 +47,10 @@ footer a {
 footer a:hover {
   text-decoration: underline;
 }
-
 a {
-  color: inherit;
+  color: #007bff;
   text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }

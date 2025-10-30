@@ -1,12 +1,12 @@
 // pages/results.js
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import ResultFinder from '../components/ResultFinder'; // Import the component
+import ResultFinder from '../components/ResultFinder';
 import Link from 'next/link';
 
 export default function ResultsPage() {
   const router = useRouter();
-  const { examId } = router.query; // Get examId from URL query string
+  const { examId } = router.query;
 
   return (
     <>
@@ -23,7 +23,6 @@ export default function ResultsPage() {
             <a>&larr; Back to all Exam Lists</a>
           </Link>
         </div>
-
         {examId ? (
             <ResultFinder selectedExamIdProp={examId.toString()} />
         ) : (
@@ -34,10 +33,7 @@ export default function ResultsPage() {
              </div>
         )}
       </main>
-
-      <footer>
-         {/* Empty footer as requested */}
-      </footer>
+      <footer> {/* Empty footer */} </footer>
     </>
   );
 }

@@ -1,8 +1,8 @@
 // pages/index.js
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import styles from '../styles/Home.module.css'; // Now imports the correct CSS file
+import Link from 'next/link'; // Using Link for navigation
+import styles from '../styles/Home.module.css'; // Use the new Home CSS module
 
 const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
 
@@ -22,6 +22,7 @@ export default function Home() {
         
         const groups = data.reduce((acc, course) => {
             if (course.exams && course.exams.length > 0) {
+                 // Sort exams within the course
                 const sortedExams = [...course.exams].sort((a, b) => {
                      if(a.semId !== b.semId) return b.semId - a.semId;
                      return a.examName.localeCompare(b.examName);
@@ -76,9 +77,11 @@ export default function Home() {
                         <tbody>
                             {examGroups.map(group => (
                                 <React.Fragment key={group.courseName}>
+                                    {/* Course Header Row */}
                                     <tr className={styles.courseHeaderRow}>
                                         <td colSpan="4">{group.courseName}</td>
                                     </tr>
+                                    {/* Exam Rows */}
                                     {group.exams.map(exam => (
                                         <tr 
                                             key={exam.id} 
@@ -91,6 +94,7 @@ export default function Home() {
                                                         {exam.examName}
                                                     </Link>
                                                 ) : (
+                                                    // Non-B.Tech exams are just text
                                                     exam.examName
                                                 )}
                                             </td>
@@ -115,4 +119,4 @@ export default function Home() {
       </footer>
     </>
   );
-                                              }
+}

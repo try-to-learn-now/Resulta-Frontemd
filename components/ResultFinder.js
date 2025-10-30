@@ -5,32 +5,25 @@ import 'jspdf-autotable';
 import styles from '../styles/ResultFinder.module.css';
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
+// IMPORTANT: Replace with your actual deployed worker URLs
 const WORKER_URLS = {
     user: "https://resulta-user.walla.workers.dev/api/result", // REPLACE
     reg1: "https://resulta-reg1.walla.workers.dev/api/result", // REPLACE
     reg2: "https://resulta-reg2.walla.workers.dev/api/result", // REPLACE
     le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
-
-// --- OLD LINE ---
-// const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
-
-// --- NEW LINE (REPLACE WITH YOUR NEW PROXY WORKER URL) ---
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
-const LAZY_LOAD_DELAY = 40;
+// --- NEW PROXY URL for BEU API ---
+// You MUST create this 5th worker
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
+const LAZY_LOAD_DELAY = 40; // Milliseconds between showing each student
 
 // --- Helper Maps ---
-// ... (rest of the file is correct) ...
-// ... (rest of file) ...
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
 const romanToArabicMap = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8 };
 const getRomanSemester = (semId) => arabicToRomanMap[semId] || '';
 const getArabicSemester = (roman) => roman ? romanToArabicMap[roman.toUpperCase()] || 0 : 0;
 
-/**
- * --- Helper Function to Fetch from a Worker ---
- * Fetches data, ensures response is an array, handles errors consistently.
- */
+// --- Fetch Worker Data Helper ---
 async function fetchWorkerData(workerKey, params) {
     const url = `${WORKER_URLS[workerKey]}?${params}`;
     console.log(`Fetching from ${workerKey}...`);
@@ -86,7 +79,10 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             try {
                 // This now correctly calls your proxy worker
                 const response = await fetch(BEU_EXAM_LIST_URL); 
-                if (!response.ok) throw new Error(`BEU API Error: ${response.status}`);
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.details || `BEU API Error: ${response.status}`);
+                }
                 const data = await response.json();
                 let foundExam = null;
                 for (const course of data) {
@@ -458,7 +454,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  {examDetails?.publishDate && (
                      <p style={{fontSize: '0.9em', color: '#6c757d', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
                          Publish Date: {new Date(examDetails.publishDate).toLocaleDateString()}
-                     </Tdp>
+                     </p> // --- FIX: Corrected </Tdp> to </p> ---
                  )}
              </div>
          );
@@ -501,7 +497,6 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {(isLoading || isLoadingMore) && (
                 <div className={styles.loader}>
                     <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
-                    {/* Show progress bar only *after* user fetch is done and we start lazy loading */}
                     {searchPerformed && !isLoading && progress.total > 0 && (
                         <>
                             <div className={styles.progressBarContainer}>

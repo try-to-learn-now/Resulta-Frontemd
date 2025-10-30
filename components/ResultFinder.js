@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import styles from '../styles/ResultFinder.module.css'; // Use the new CSS module
+import styles from '../styles/ResultFinder.module.css';
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
 // IMPORTANT: Replace with your actual deployed worker URLs
@@ -42,7 +42,6 @@ async function fetchWorkerData(workerKey, params) {
          const batchSize = 5; 
          const baseNum = parseInt(baseRegNo.slice(-3)) || 0;
          const batchRegNos = Array.from({ length: batchSize }, (_, i) => `${baseRegNo.slice(0,-3)}${String(baseNum + i).padStart(3,'0')}`);
-         // Return error structure for the batch
          return batchRegNos.map(rn => ({ regNo: rn, status: 'Error', reason: error.message }));
     }
 }
@@ -53,23 +52,19 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     // --- State ---
     const [selectedExamDetails, setSelectedExamDetails] = useState(null);
     const [regNo, setRegNo] = useState('');
-    
-    const [userResult, setUserResult] = useState(null); // The user's full result object {regNo, status, data, reason}
-    const [classResults, setClassResults] = useState([]); // Students for the table (lazy loaded)
-    const [fetchedDataQueue, setFetchedDataQueue] = useState([]); // Temp store for one-by-one lazy load
-    const [errorList, setErrorList] = useState([]); // Store regNos that failed
-    
-    const [isLoading, setIsLoading] = useState(false); // Combined loading state
+    const [userResult, setUserResult] = useState(null);
+    const [classResults, setClassResults] = useState([]);
+    const [fetchedDataQueue, setFetchedDataQueue] = useState([]);
+    const [errorList, setErrorList] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
     const [loadingStage, setLoadingStage] = useState('');
-    const [progress, setProgress] = useState({ percent: 0, loaded: 0, total: 0, stage: '' }); // Progress state
+    const [progress, setProgress] = useState({ percent: 0, loaded: 0, total: 0, stage: '' });
     const [error, setError] = useState(null);
-    
     const [searchPerformed, setSearchPerformed] = useState(false);
     const [lastSearchParams, setLastSearchParams] = useState(null);
     const [showLoadMore, setShowLoadMore] = useState(false);
-    const [isLoadingMore, setIsLoadingMore] = useState(false); // Separate state for "load more" button
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [fetchedReg2, setFetchedReg2] = useState(false);
-    
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedStudentData, setSelectedStudentData] = useState(null);
 
@@ -93,13 +88,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 if (foundExam) {
                     setSelectedExamDetails(foundExam);
                     console.log("Exam details set:", foundExam);
-                } else {
-                    setError(`Exam details for ID ${selectedExamIdProp} not found.`);
-                }
-            } catch (err) {
-                console.error("Failed to fetch exam details:", err);
-                setError(`Could not load exam details: ${err.message}`);
-            }
+                } else { setError(`Exam details for ID ${selectedExamIdProp} not found.`); }
+            } catch (err) { console.error("Failed to fetch exam details:", err); setError(`Could not load exam details: ${err.message}`); }
         };
         fetchExamDetails();
     }, [selectedExamIdProp]);
@@ -113,10 +103,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
      const mergeAndSortResults = (existingResults, newResults) => {
          const resultMap = new Map(existingResults.map(item => [item.regNo || `error-${Math.random()}`, item]));
          newResults.forEach(item => {
-             // Exclude "Record not found" COMPLETELY
              if (item.status !== 'Record not found') {
                  const existing = resultMap.get(item.regNo);
-                 // Prioritize non-error status
                  if (!existing || (existing.status === 'Error' && item.status !== 'Error') || !item.regNo) {
                     resultMap.set(item.regNo || `error-${Math.random()}`, item);
                  }
@@ -140,37 +128,22 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     // --- One-by-one Lazy Load Effect ---
     useEffect(() => {
         if (fetchedDataQueue.length === 0) {
-             if (isLoading || isLoadingMore) {
-                 // Still fetching, but queue is empty, update stage
+             if(isLoading || isLoadingMore) {
                  setProgress(prev => ({...prev, stage: prev.stage.includes("Fetching") ? prev.stage : "Processing..."}));
              } else if (searchPerformed) {
-                 // All done
                  setLoadingStage('');
                  setProgress(prev => ({...prev, stage: `Loaded ${prev.loaded} students.`}));
              }
-            return; // Queue empty
+            return;
         }
-
-        // --- 40 Second Delay Logic ---
-        // If this is the *first* student in the queue, AND it's not a retry,
-        // AND the user's result hasn't been shown yet, apply the long delay.
-        // --- REMOVED --- We're holding user result display until after reg1/le fetch now.
-        // Instead, the long delay is simulated by the *total fetch time*.
-        // We just use the short lazy load delay here.
-
         const timer = setTimeout(() => {
             const student = fetchedDataQueue[0];
-            
-            // Add student to the *visible* class results
-            // (Filter user again just in case, though they are shown separately)
             if(student.regNo !== regNo) {
                  setClassResults(prev => mergeAndSortResults(prev, [student]));
             }
-            
-            // Update progress
             setProgress(prev => {
                 const loaded = prev.loaded + 1;
-                const percent = Math.round((loaded / prev.total) * 100);
+                const percent = prev.total > 0 ? Math.round((loaded / prev.total) * 100) : 0;
                 return {
                     ...prev,
                     loaded: loaded,
@@ -178,13 +151,9 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                     stage: `Processing... (${loaded} / ${prev.total} students found)`
                 };
             });
-            
-            // Remove processed student from queue
             setFetchedDataQueue(prev => prev.slice(1));
         }, LAZY_LOAD_DELAY); 
-
         return () => clearTimeout(timer); 
-
     }, [fetchedDataQueue, regNo, isLoading, isLoadingMore, searchPerformed]);
 
 
@@ -194,7 +163,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
         setIsLoading(true); setLoadingStage('Starting search...'); setError(null); setShowLoadMore(false); setFetchedReg2(false);
         if (!isRetry) { setUserResult(null); setClassResults([]); setSearchPerformed(true); setFetchedDataQueue([]); setErrorList([]); }
-        else { setError(null); setFetchedDataQueue([]); setErrorList([]); } // Clear on retry
+        else { setError(null); setFetchedDataQueue([]); setErrorList([]); }
 
         const year = selectedExamDetails.batchYear; const semesterRoman = getRomanSemester(selectedExamDetails.semId); const examHeld = selectedExamDetails.examHeld;
         const params = `reg_no=${regNo}&year=${year}&semester=${semesterRoman}&exam_held=${encodeURIComponent(examHeld)}`;
@@ -202,15 +171,13 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
         let encounteredError = false;
         let tempErrorList = [];
-        let userResultObject = null; // Store user result temporarily
+        let userResultObject = null;
         
-        // Estimate total batches for initial progress
         const estTotalBatches = 1 + 12 + 12; // User(1) + Reg1(12) + LE(12)
         let batchesLoaded = 0;
         setProgress({ percent: 0, loaded: 0, total: 0, stage: 'Initializing...'});
 
         try {
-            // 1. Fetch User Batch FIRST
             setLoadingStage('Fetching your result (Batch 1/25)...');
             const userBatchData = await fetchWorkerData('user', params);
             batchesLoaded++;
@@ -222,21 +189,18 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             if (userResultObject?.status !== 'success') {
                  if (userResultObject?.status === 'Error') {
                      encounteredError = true;
-                     tempErrorList = tempErrorList.concat(userBatchData.filter(r => r.status === 'Error').map(r => r.regNo));
+                     userBatchData.filter(r => r.status === 'Error').forEach(r => tempErrorList.push(r.regNo));
                  }
                  if (userResultObject.status !== 'Record not found' && userResultObject.status !== 'Not Found') {
                     setError(prev => prev || `Result status for ${regNo}: ${userResultObject?.status}${userResultObject?.reason ? ` - ${userResultObject?.reason}`: ''}`);
                  }
             } else { setError(null); }
             
-            // --- HOLD USER RESULT ---
-
-            // 2. Fetch Reg1 + LE Serially
             let reg1Data = [], leData = [];
 
             setLoadingStage('Loading class results (1-60)...');
             reg1Data = await fetchWorkerData('reg1', params);
-            batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            batchesLoaded += (60 / BATCH_STEP);
             setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Loading LE results...'}));
             if (reg1Data.some(r => r.status === 'Error')) {
                 encounteredError = true;
@@ -245,40 +209,38 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             setLoadingStage('Loading results (LE 901-960)...');
             leData = await fetchWorkerData('le', params);
-             batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            batchesLoaded += (60 / BATCH_STEP);
             setProgress(prev => ({...prev, percent: 100, stage: 'Finalizing...'}));
             if (leData.some(r => r.status === 'Error')) {
                 encounteredError = true;
                 tempErrorList = tempErrorList.concat(leData.filter(r => r.status === 'Error').map(r => r.regNo));
             }
             
-            // 3. --- DISPLAY USER RESULT NOW ---
             console.log("Displaying User Result Now (After Hold)");
-            setUserResult(userResultObject); // <-- Triggers display of user's detailed result
+            setUserResult(userResultObject);
             
-            // 4. --- Start Lazy Loading Class Results ---
             const combinedClassData = [...reg1Data, ...leData];
             const filteredClassData = combinedClassData.filter(r => r.status !== 'Record not found');
             
-            // Set total for progress bar based on *found* students
-            const totalStudentsFound = filteredClassData.length; // Don't include user
+            const totalStudentsFound = filteredClassData.length;
             setProgress({ percent: 0, loaded: 0, total: totalStudentsFound, stage: `Loading ${totalStudentsFound} students...`});
             
-            // Add to lazy load queue (this triggers the useEffect)
             setFetchedDataQueue(filteredClassData);
             
-            // 5. Show "Load More" button
-            setShowLoadMore(true);
+            const suffixNum = parseInt(regNo.slice(-3));
+            const userIsPotentiallyInReg2 = !isNaN(suffixNum) && suffixNum >= 61 && suffixNum < 900;
+            if (userIsPotentiallyInReg2 || (foundUser?.status === 'success')) {
+                 setShowLoadMore(true);
+            }
 
         } catch (error) {
             console.error("Critical error during search:", error); setError(`Unexpected error: ${error.message}`); encounteredError = true; setIsLoading(false);
         } finally {
-            setIsLoading(false); // Main search logic finished
-            // setLoadingStage(''); // Handled by lazy load effect
+            setIsLoading(false);
             if (encounteredError) {
                  setError(prevError => { const failMsg = "Some results failed. See list below."; return prevError ? (prevError.includes(failMsg) ? prevError : `${prevError} | ${failMsg}`) : failMsg; });
             }
-             setErrorList(prev => mergeAndSortResults(prev, tempErrorList.map(r => ({regNo: r, status: 'Error', reason: 'Failed to fetch'})) ).map(r => r.regNo) ); // Update error list
+             setErrorList([...new Set(tempErrorList)].sort());
         }
     }, [regNo, selectedExamDetails]);
 
@@ -289,15 +251,14 @@ const ResultFinder = ({ selectedExamIdProp }) => {
          
          const oldTotal = progress.total;
          const oldLoaded = progress.loaded;
-         const newBatches = (120 - 60) / BATCH_STEP; // 12 batches
-         const estimatedNewTotal = oldTotal + (newBatches * 4); // Guess 4 students per batch
+         const newBatches = (120 - 60) / BATCH_STEP;
+         const estimatedNewTotal = oldTotal + (newBatches * 4);
          setProgress({ percent: Math.round((oldLoaded / estimatedNewTotal) * 100), loaded: oldLoaded, total: estimatedNewTotal, stage: 'Loading results (61-120)...'});
          
          try {
              const reg2Data = await fetchWorkerData('reg2', lastSearchParams);
              const filteredReg2Data = reg2Data.filter(r => r.status !== 'Record not found');
              
-             // Update total count to be accurate
              const accurateTotal = oldLoaded + filteredReg2Data.length;
              setProgress(prev => ({...prev, total: accurateTotal}));
 
@@ -306,15 +267,12 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                   setErrorList(prev => [...new Set([...prev, ...reg2Data.filter(r => r.status === 'Error').map(r => r.regNo)])].sort());
              }
              
-             // Add to lazy load queue
              setFetchedDataQueue(prev => [...prev, ...filteredReg2Data]);
-
              setShowLoadMore(false); setFetchedReg2(true);
          } catch (error) {
               console.error("Critical fetch Reg2:", error); setError(`Failed load (61-120): ${error.message}`);
          } finally {
               setIsLoadingMore(false); 
-              // setLoadingStage(''); // Handled by lazy load
          }
     };
 
@@ -354,14 +312,12 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         doc.text(`Session: ${examDetails?.session || 'N/A'} | Exam Held: ${examDetails?.examHeld || 'N/A'}`, 14, 28); doc.setTextColor(0);
          doc.text(`Total Students Found: ${uniqueResults.length}`, 14, 34);
 
+        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 40, theme: 'grid', headStyles: { fillColor: [22, 160, 133], textColor: 255 }, styles: { fontSize: 8, cellPadding: 1.5 }, alternateRowStyles: { fillColor: [245, 245, 245] }, didDrawPage: (data) => { doc.setFontSize(8); doc.setTextColor(100); doc.text('Page ' + doc.internal.getNumberOfPages() + ' | Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), data.settings.margin.left, doc.internal.pageSize.height - 10); } });
 
-        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 40, theme: 'grid', headStyles: { fillColor: [22, 160, 133], textColor: 255 }, styles: { fontSize: 8, cellPadding: 1.5 }, alternateRowStyles: { fillColor: [245, 245, 245] }, didDrawPage: (data) => { /* Footer */ doc.setFontSize(8); doc.setTextColor(100); doc.text('Page ' + doc.internal.getNumberOfPages() + ' | Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), data.settings.margin.left, doc.internal.pageSize.height - 10); } });
-
-        // Add details page FOR EACH student
          console.log(`PDF: Adding ${uniqueResults.length} detailed pages...`);
          uniqueResults.forEach((student, index) => {
              console.log(`PDF: Adding page for ${student.regNo}`);
-             addStudentDetailToPdf(doc, student.data, index + 2, examDetails, true); // Pass true for watermark
+             addStudentDetailToPdf(doc, student.data, index + 2, examDetails, true);
          });
 
         doc.save(`BEU_Results_${examDetails?.semId || 'Sem'}_${examDetails?.batchYear || 'Year'}_FullClass.pdf`);
@@ -370,7 +326,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     const generateSinglePdf = () => {
          if (!userResult || userResult.status !== 'success' || !userResult.data) { alert('Your result was not found successfully.'); return; }
           const doc = new jsPDF({ orientation: 'portrait' }); 
-          addStudentDetailToPdf(doc, userResult.data, 1, getSelectedExamDetails(), true); // Pass true for watermark
+          addStudentDetailToPdf(doc, userResult.data, 1, getSelectedExamDetails(), true);
           doc.save(`BEU_Result_${userResult.regNo}_${selectedExamDetails?.semId || 'Sem'}.pdf`);
     };
 
@@ -379,74 +335,74 @@ const ResultFinder = ({ selectedExamIdProp }) => {
           let yPos = 20; const pageHeight = doc.internal.pageSize.height; const bottomMargin = 20; const leftMargin = 14; const rightMargin = doc.internal.pageSize.width - 14;
         if (!examDetails) examDetails = getSelectedExamDetails();
 
-        // --- Header ---
         doc.setFontSize(14); doc.setFont(undefined, 'bold'); doc.text("BIHAR ENGINEERING UNIVERSITY, PATNA", doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 6;
         doc.setFontSize(12); doc.setFont(undefined, 'normal'); doc.text(examDetails?.examName || 'Exam Result', doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 10;
 
-        // --- Student Info ---
         doc.setFontSize(10); doc.text(`Registration No: ${data.redg_no || 'N/A'}`, leftMargin, yPos); doc.text(`Semester: ${data.semester || 'N/A'}`, rightMargin - 40, yPos); yPos += 6; doc.text(`Student Name: ${data.name || 'N/A'}`, leftMargin, yPos); yPos += 6; doc.text(`College: ${data.college_name || 'N/A'} (${data.college_code || 'N/A'})`, leftMargin, yPos); yPos += 6; doc.text(`Course: ${data.course || 'N/A'} (${data.course_code || 'N/A'})`, leftMargin, yPos); yPos += 10;
 
         const checkPageBreak = (currentY, requiredHeight) => { if (currentY + requiredHeight > pageHeight - bottomMargin) { doc.addPage(); return 20; } return currentY; };
         const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
 
-        // --- Theory Subjects ---
         if (data.theorySubjects?.length > 0) { yPos = checkPageBreak(yPos, (data.theorySubjects.length + 1) * 7 + 15); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("Theory Subjects", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); doc.autoTable({ head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]], body: data.theorySubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']), startY: yPos, theme: 'grid', styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fontSize: 8, fillColor: [220, 220, 220], textColor: 0 }, alternateRowStyles: { fillColor: [248, 248, 248] }, pageBreak: 'auto', bodyStyles: { minCellHeight: 6 } }); yPos = doc.lastAutoTable.finalY + 8; }
 
-        // --- Practical Subjects ---
         if (data.practicalSubjects?.length > 0) { yPos = checkPageBreak(yPos, (data.practicalSubjects.length + 1) * 7 + 15); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("Practical Subjects", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); doc.autoTable({ head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]], body: data.practicalSubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']), startY: yPos, theme: 'grid', styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fontSize: 8, fillColor: [220, 220, 220], textColor: 0 }, alternateRowStyles: { fillColor: [248, 248, 248] }, pageBreak: 'auto', bodyStyles: { minCellHeight: 6 } }); yPos = doc.lastAutoTable.finalY + 10; }
 
-        // --- SGPA/CGPA Summary ---
         yPos = checkPageBreak(yPos, 30); doc.setFontSize(10); const currentSem = getArabicSemester(data.semester); doc.text(`SGPA (Sem ${data.semester || '?'}): ${data.sgpa?.[currentSem - 1] ?? 'N/A'}`, leftMargin, yPos); yPos += 6; doc.text(`Overall CGPA: ${data.cgpa || 'N/A'}`, leftMargin, yPos); yPos += 6; doc.setFont(undefined, 'bold'); doc.text(`Final Result Status: ${data.fail_any || 'N/A'}`, leftMargin, yPos); doc.setFont(undefined, 'normal'); yPos += 10;
 
-        // --- SGPA History Table ---
         if (data.sgpa?.some(s => s !== null)) { yPos = checkPageBreak(yPos, 25); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("SGPA History", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); const sgpaCols = [["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]]; const sgpaRowPadded = [...(data.sgpa || [])]; while(sgpaRowPadded.length < 8) sgpaRowPadded.push(null); const sgpaRow = sgpaRowPadded.map(s => s ?? 'NA'); doc.autoTable({ head: sgpaCols, body: [sgpaRow], startY: yPos, theme: 'plain', styles: { fontSize: 9, cellPadding: 1, halign: 'center' }, headStyles: { fontSize: 9, fontStyle: 'bold' } }); yPos = doc.lastAutoTable.finalY + 8; }
 
-        // --- Remarks / Fail Subjects (Show NAMES) ---
          if (data.fail_any && data.fail_any !== 'PASS') { 
              yPos = checkPageBreak(yPos, 15);
              doc.setFontSize(10); doc.setTextColor(255, 0, 0); doc.setFont(undefined, 'bold');
              doc.text(`Remarks: ${data.fail_any.split(':')[0]}`, leftMargin, yPos); yPos+=6;
              
-             const failedCodes = data.fail_any.replace("FAIL:", "").split(',').map(code => code.trim());
+             const failedCodes = data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim());
              failedCodes.forEach(code => {
+                 if(!code) return;
                  const subject = allSubjects.find(s => s.code === code);
                  if(subject) {
                      yPos = checkPageBreak(yPos, 6);
-                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0); // Darker red
+                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0);
                      doc.text(`- ${subject.name} (${subject.code})`, leftMargin + 5, yPos); yPos+=6;
+                 } else {
+                     yPos = checkPageBreak(yPos, 6);
+                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0);
+                     doc.text(`- Unknown Subject (${code})`, leftMargin + 5, yPos); yPos+=6;
                  }
              });
-             
              doc.setTextColor(0); doc.setFont(undefined, 'normal'); 
          }
 
-         // --- Publish Date ---
          if(examDetails?.publishDate){ yPos = checkPageBreak(yPos, 10); doc.setFontSize(9); doc.setTextColor(100); doc.text(`Publish Date: ${new Date(examDetails.publishDate).toLocaleDateString()}`, leftMargin, yPos); doc.setTextColor(0); yPos += 10; }
 
-          // --- Watermark ---
           if (addWatermark) {
-             // Add watermark *before* footer
-             const watermarkText = "resulta.beunotes.workers.dev"; // Your website name
-             doc.setFontSize(50); // Large font
-             doc.setTextColor(230, 230, 230); // Light grey color
-             doc.setFont(undefined, 'bold');
-             // Center and rotate
-             doc.text(watermarkText, doc.internal.pageSize.width / 2, doc.internal.pageSize.height / 2, { angle: -45, align: 'center' });
-             doc.setTextColor(0); // Reset color
-             doc.setFont(undefined, 'normal');
+             const pageCount = doc.internal.getNumberOfPages();
+             const startPage = pageNum === 1 ? 1 : doc.internal.getNumberOfPages(); 
+             for(let i = startPage; i <= doc.internal.getNumberOfPages(); i++) {
+                doc.setPage(i);
+                doc.setFontSize(40); doc.setTextColor(230, 230, 230); doc.setFont(undefined, 'bold');
+                doc.text('resulta.beunotes.workers.dev', doc.internal.pageSize.width / 2, doc.internal.pageSize.height / 2, { angle: -45, align: 'center' });
+             }
+             doc.setTextColor(0); doc.setFont(undefined, 'normal');
           }
 
-          // --- Page Footer ---
+          doc.setPage(doc.internal.getNumberOfPages()); 
+          yPos = doc.internal.pageSize.height - 10;
           doc.setFontSize(8); doc.setTextColor(100);
           const pageStr = pageNum ? `Page ${pageNum} | ` : '';
-          doc.text(pageStr + 'Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), leftMargin, pageHeight - 10);
+          doc.text(pageStr + 'Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), leftMargin, yPos);
      };
 
-     // --- Helper: Render Full Detailed Result (as a React Component) ---
+     // --- Helper: Render Full Detailed Result (React Component) ---
      const DetailedResultView = ({ studentResult }) => {
-         if (!studentResult || studentResult.status !== 'success' || !studentResult.data) {
-             return null; // Don't render if no success data
+         if (!studentResult || !studentResult.data) {
+             // This component should only be called with success data
+             if (studentResult.status === 'Record not found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>; }
+             if (studentResult.status === 'Error') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {studentResult.reason || 'Failed to fetch'}</p></div>; }
+             if (studentResult.status === 'Not Found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Not Found - Your registration number was not in the initial batch.</p></div>; }
+             return <div style={{padding: '0 20px 15px 20px'}}><p>Loading details...</p></div>;
          }
+         
          const data = studentResult.data;
          const examDetails = getSelectedExamDetails();
          const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
@@ -462,13 +418,13 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  {data.theorySubjects?.length > 0 ? (
                     <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
                     {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                 ) : <p>No theory subjects.</p>}
+                 ) : <p>No theory subjects found.</p>}
 
                  <hr/><h3>Practical Subjects</h3>
                  {data.practicalSubjects?.length > 0 ? (
                     <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
                     {data.practicalSubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                  ): <p>No practical subjects.</p>}
+                  ): <p>No practical subjects found.</p>}
                  
                  <hr/><div style={{marginTop: '15px'}}>
                   <p><strong>SGPA (Current Sem):</strong> {data.sgpa?.[getArabicSemester(data.semester) - 1] ?? 'N/A'}</p>
@@ -480,9 +436,10 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 
                 {data.fail_any && data.fail_any !== 'PASS' && ( 
                     <> 
-                        <hr/> <h3 style={{marginTop: '15px', color: '#dc3545'}}>Remarks: {data.fail_any.split(':')[0]}</h3>
-                        <ul style={{color: '#dc3545', fontSize: '0.9em'}}>
-                            {data.fail_any.replace("FAIL:", "").split(',').map(code => code.trim()).map(code => {
+                        <hr/> <h3 style={{marginTop: '15px'}} className={styles.failStatus}>Remarks: {data.fail_any.split(':')[0]}</h3>
+                        <ul style={{color: '#dc3545', fontSize: '0.9em', paddingLeft: '20px', margin: '5px 0'}}>
+                            {data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim()).map(code => {
+                                if(!code) return null;
                                 const subject = allSubjects.find(s => s.code === code);
                                 return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={code}>{code}</li>;
                             })}
@@ -505,7 +462,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             <h1 className={styles.title}>{selectedExamDetails?.examName || 'B.Tech Result Finder'}</h1>
             <p style={{textAlign: 'center', marginTop: '-25px', marginBottom: '25px', color: '#555'}}>
                 {selectedExamDetails ? `Session: ${selectedExamDetails.session} | Exam Held: ${selectedExamDetails.examHeld}` : (selectedExamIdProp ? "Loading exam details..." : "No exam selected.")}
-            </Fp>
+            </p>
 
             {/* Input Form */}
             <form onSubmit={handleSearch} className={styles.form}>
@@ -518,7 +475,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                          {isLoading || isLoadingMore ? 'Loading...' : 'Search Results'}
                     </button>
                     {searchPerformed && !isLoading && !isLoadingMore && (userResult?.status === 'success') && (
-                        <button type"button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
+                        <button type="button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
                     )}
                     {searchPerformed && !isLoading && !isLoadingMore && (classResults.length > 0) && (
                         <button type="button" onClick={generatePdf} className={`${styles.button} ${styles.buttonSuccess}`} > Download Class PDF </button>
@@ -530,10 +487,11 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             </form>
 
             {/* --- Status Messages & Progress Bar --- */}
-            {(isLoading || isLoadingMore || (loadingStage && searchPerformed)) && (
+            {(isLoading || isLoadingMore) && (
                 <div className={styles.loader}>
                     <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
-                    {progress.total > 0 && (
+                    {/* Show progress bar only *after* user fetch is done and we start lazy loading */}
+                    {searchPerformed && !isLoading && progress.total > 0 && (
                         <>
                             <div className={styles.progressBarContainer}>
                                 <div className={styles.progressBar} style={{ width: `${progress.percent}%` }}></div>
@@ -553,20 +511,14 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {userResult && (
                  <div className={`${styles.userResultBox} ${styles[userResult.status?.replace(/\s+/g, '')?.toLowerCase() || 'unknown']}`}>
                     <h2>Your Result</h2>
-                     {userResult.status === 'success' && userResult.data ? (
-                        <DetailedResultView studentResult={userResult} />
-                    ) : userResult.status === 'Record not found' ? (
-                        <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>
-                    ) : userResult.status === 'Error' ? (
-                        <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {userResult.reason || 'Failed to fetch'}</p></div>
-                    ) : null }
+                    <DetailedResultView studentResult={userResult} />
                 </div>
             )}
 
              {/* --- Load More Button / Progress Info --- */}
              {searchPerformed && !isLoading && showLoadMore && !isLoadingMore && !fetchedReg2 && (
                  <div className={styles.loadMoreContainer}>
-                    <p>Showing results for 1-60 & LE students. Click below to load the remaining results for potentially larger colleges.</p>
+                    <p>Showing results for 1-60 & LE students. Click below to load the remaining results for potentially larger colleges (61-120).</p>
                     <button onClick={fetchReg2Results} className={`${styles.button} ${styles.buttonSecondary}`}>
                         Load More Results (61-120)
                     </button>
@@ -575,7 +527,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
              {searchPerformed && !isLoading && !isLoadingMore && fetchedReg2 && <div className={styles.progressInfo}>All available results (1-120 & LE) loaded.</div>}
 
             {/* --- Class Results Table --- */}
-             {searchPerformed && (classResults.length > 0 || (isLoadingMore || isLoading)) && (
+             {searchPerformed && (classResults.length > 0 || (isLoading || isLoadingMore)) && (
                 <h2 className={styles.tableTitle}>{loadingStage ? loadingStage : 'Class Results (Excluding "Not Found")'}</h2>
              )}
             {searchPerformed && classResults.length > 0 && (
@@ -607,8 +559,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             {/* --- Error List Box --- */}
             {searchPerformed && !isLoading && !isLoadingMore && errorList.length > 0 && (
-                 <div className={`${styles.errorBox}`} style={{marginTop: '30px', textAlign: 'left', borderColor: '#ffc107', backgroundColor: '#fff3cd', color: '#664d03'}}>
-                    <p style={{fontWeight: 'bold', marginTop: 0}}>The following registration numbers encountered temporary errors (e.g., Timeout) and were not loaded:</p>
+                 <div className={`${styles.errorBox} ${styles.errorListBox}`}>
+                    <p>The following registration numbers encountered temporary errors (e.g., Timeout) and were not loaded:</p>
                     <ul style={{fontSize: '0.9em', listStyle: 'none', paddingLeft: '10px', columns: 3, columnGap: '10px'}}>
                          {[...new Set(errorList)].map(reg => <li key={reg}>- {reg}</li>)} {/* Ensure unique */}
                     </ul>
@@ -624,7 +576,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 <div className={styles.modalBackdrop} onClick={closeModal}>
                     <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                          <button className={styles.modalCloseButton} onClick={closeModal}>&times;</button>
-                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success'}} /> {/* Re-use the detailed view component */}
+                        {/* Re-use the detailed view component */}
+                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success', regNo: selectedStudentData.redg_no}} /> 
                     </div>
                 </div>
             )}

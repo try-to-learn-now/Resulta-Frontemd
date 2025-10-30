@@ -1,12 +1,18 @@
 // pages/index.js
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
-import Link from 'next/link'; // Using Link for navigation
-import styles from '../styles/Home.module.css'; // Use the new Home CSS module
+import Link from 'next/link';
+import styles from '../styles/Home.module.css';
 
-const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
+// --- OLD LINE ---
+// const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
+
+// --- NEW LINE (REPLACE WITH YOUR NEW PROXY WORKER URL) ---
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
 
 export default function Home() {
+  // ... (rest of the file is correct) ...
+// ... (rest of file) ...
   const [examGroups, setExamGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);

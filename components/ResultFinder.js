@@ -5,17 +5,15 @@ import 'jspdf-autotable';
 import styles from '../styles/ResultFinder.module.css';
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
-// IMPORTANT: Replace with your actual deployed worker URLs
 const WORKER_URLS = {
     user: "https://resulta-user.walla.workers.dev/api/result", // REPLACE
     reg1: "https://resulta-reg1.walla.workers.dev/api/result", // REPLACE
     reg2: "https://resulta-reg2.walla.workers.dev/api/result", // REPLACE
     le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
-// --- NEW PROXY URL for BEU API ---
-// You MUST create this 5th worker
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
-const LAZY_LOAD_DELAY = 40; // Milliseconds between showing each student
+// This is your exam list proxy. We MUST use it here for the cache.
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE
+const LAZY_LOAD_DELAY = 40; 
 const BATCH_STEP = 5; // --- FIX: ADDED MISSING CONSTANT ---
 
 // --- Helper Maps ---
@@ -42,7 +40,6 @@ async function fetchWorkerData(workerKey, params) {
     } catch (error) {
         console.error(`Error fetching from ${workerKey} (${url}):`, error);
          const baseRegNo = params.split('&')[0].split('=')[1] || 'Unknown';
-         // Use BATCH_STEP constant here
          const baseNum = parseInt(baseRegNo.slice(-3)) || 0;
          const batchRegNos = Array.from({ length: BATCH_STEP }, (_, i) => `${baseRegNo.slice(0,-3)}${String(baseNum + i).padStart(3,'0')}`);
          return batchRegNos.map(rn => ({ regNo: rn, status: 'Error', reason: error.message }));
@@ -78,7 +75,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             console.log(`Fetching details for examId: ${selectedExamIdProp}`);
             setError(null); 
             try {
-                // This now correctly calls your proxy worker
+                // This calls your proxy, which is now in sync
                 const response = await fetch(BEU_EXAM_LIST_URL); 
                 if (!response.ok) {
                     const errData = await response.json();
@@ -145,6 +142,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         }
         const timer = setTimeout(() => {
             const student = fetchedDataQueue[0];
+            // Only add to class results if it's NOT the user
             if(student.regNo !== regNo) {
                  setClassResults(prev => mergeAndSortResults(prev, [student]));
             }
@@ -185,6 +183,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         setProgress({ percent: 0, loaded: 0, total: 0, stage: 'Initializing...'});
 
         try {
+            // --- USER FETCH (FAST) ---
             setLoadingStage(`Fetching your result (Batch 1/${estTotalBatches})...`);
             const userBatchData = await fetchWorkerData('user', params);
             batchesLoaded++;
@@ -193,6 +192,12 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             const foundUser = userBatchData.find(r => r.regNo === regNo);
             userResultObject = foundUser || { regNo: regNo, status: 'Not Found', reason: 'Not in initial response' };
             
+            // --- FIX 1: "HOSTAGE BUG" ---
+            // Set the user's result IMMEDIATELY so they don't leave the page.
+            console.log("Displaying User Result NOW.");
+            setUserResult(userResultObject);
+            // --- END FIX 1 ---
+
             if (userResultObject?.status !== 'success') {
                  if (userResultObject?.status === 'Error') {
                      encounteredError = true;
@@ -205,6 +210,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             let reg1Data = [], leData = [];
 
+            // --- CLASS FETCH (SLOW, IN BACKGROUND) ---
             setLoadingStage('Loading class results (1-60)...');
             reg1Data = await fetchWorkerData('reg1', params);
             batchesLoaded += (60 / BATCH_STEP);
@@ -223,10 +229,12 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 tempErrorList = tempErrorList.concat(leData.filter(r => r.status === 'Error').map(r => r.regNo));
             }
             
-            console.log("Displaying User Result Now (After Hold)");
-            setUserResult(userResultObject);
+            // --- FIX 2: "MISSING USER BUG" ---
+            // Add the user's batch to the class data.
+            // This fixes the bug where user '...070' is missing from the list.
+            const combinedClassData = [...userBatchData, ...reg1Data, ...leData];
+            // --- END FIX 2 ---
             
-            const combinedClassData = [...reg1Data, ...leData];
             const filteredClassData = combinedClassData.filter(r => r.status !== 'Record not found');
             
             const totalStudentsFound = filteredClassData.length;
@@ -234,6 +242,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             setFetchedDataQueue(filteredClassData);
             
+            // Show "Load More" button (this logic is good)
             const suffixNum = parseInt(regNo.slice(-3));
             const userIsPotentiallyInReg2 = !isNaN(suffixNum) && suffixNum >= 61 && suffixNum < 900;
             if (userIsPotentiallyInReg2 || (foundUser?.status === 'success')) {
@@ -487,7 +496,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                     {searchPerformed && !isLoading && !isLoadingMore && (userResult?.status === 'success') && (
                         <button type="button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
                     )}
-                    {searchPerformed && !isLoading && !isLoadingMore && (classResults.length > 0) && (
+                    {searchPerformed && !isLoading && !isLoadingMore && (classResults.length > 0 || userResult?.status === 'success') && (
                         <button type="button" onClick={generatePdf} className={`${styles.button} ${styles.buttonSuccess}`} > Download Class PDF </button>
                     )}
                     {error && searchPerformed && !isLoading && !isLoadingMore && (
@@ -500,8 +509,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {(isLoading || isLoadingMore) && (
                 <div className={styles.loader}>
                     <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
-                    {/* Show progress bar only *after* user fetch is done and we start lazy loading */}
-                    {searchPerformed && !isLoading && progress.total > 0 && (
+                    {searchPerformed && (isLoading || isLoadingMore) && progress.total > 0 && (
                         <>
                             <div className={styles.progressBarContainer}>
                                 <div className={styles.progressBar} style={{ width: `${progress.percent}%` }}></div>
@@ -538,7 +546,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
             {/* --- Class Results Table --- */}
              {searchPerformed && (classResults.length > 0 || (isLoading || isLoadingMore)) && (
-                <h2 className={styles.tableTitle}>{loadingStage ? loadingStage : 'Class Results (Excluding "Not Found")'}</h2>
+                <h2 className={styles.tableTitle}>{ (isLoading || isLoadingMore) ? 'Loading Class Results...' : 'Class Results (Excluding "Not Found")'}</h2>
              )}
             {searchPerformed && classResults.length > 0 && (
                 <div className={styles.tableContainer}>
@@ -579,7 +587,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             )}
 
             {/* No results message */}
-            {searchPerformed && !isLoading && !userResult && classResults.length === 0 && !error && <p className={styles.noResults}>No results found or loaded yet for the class.</p>}
+            {searchPerformed && !isLoading && !userResult && classResults.length === 0 && !error && <p>No results found or loaded yet for the class.</p>}
 
              {/* --- Modal for Full Details (Used for Class Results) --- */}
              {modalOpen && selectedStudentData && (

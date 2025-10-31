@@ -5,17 +5,16 @@ import 'jspdf-autotable';
 import styles from '../styles/ResultFinder.module.css';
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
-// IMPORTANT: Replace with your actual deployed worker URLs
 const WORKER_URLS = {
     user: "https://resulta-user.walla.workers.dev/api/result", // REPLACE
     reg1: "https://resulta-reg1.walla.workers.dev/api/result", // REPLACE
     reg2: "https://resulta-reg2.walla.workers.dev/api/result", // REPLACE
     le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
-// --- NEW PROXY URL for BEU API ---
-// You MUST create this 5th worker
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
-const LAZY_LOAD_DELAY = 40; // Milliseconds between showing each student
+
+// --- NEW LINE (REPLACE WITH YOUR NEW PROXY WORKER URL) ---
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
+const LAZY_LOAD_DELAY = 40;
 
 // --- Helper Maps ---
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
@@ -81,7 +80,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 const response = await fetch(BEU_EXAM_LIST_URL); 
                 if (!response.ok) {
                     const errData = await response.json();
-                    throw new Error(errData.details || `BEU API Error: ${response.status}`);
+                    throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
                 }
                 const data = await response.json();
                 let foundExam = null;
@@ -423,7 +422,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  {data.theorySubjects?.length > 0 ? (
                     <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
                     {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                 ) : <p>No theory subjects.</p>}
+                 ) : <p>No theory subjects found.</p>}
 
                  <hr/><h3>Practical Subjects</h3>
                  {data.practicalSubjects?.length > 0 ? (
@@ -446,7 +445,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                             {data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim()).map(code => {
                                 if(!code) return null;
                                 const subject = allSubjects.find(s => s.code === code);
-                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={code}>{code}</li>;
+                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={Gode}>{code}</li>;
                             })}
                         </ul>
                     </> 
@@ -454,7 +453,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  {examDetails?.publishDate && (
                      <p style={{fontSize: '0.9em', color: '#6c757d', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
                          Publish Date: {new Date(examDetails.publishDate).toLocaleDateString()}
-                     </p> // --- FIX: Corrected </Tdp> to </p> ---
+                     </p>
                  )}
              </div>
          );

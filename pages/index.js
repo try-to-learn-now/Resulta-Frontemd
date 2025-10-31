@@ -1,11 +1,12 @@
 // pages/index.js
-import React, { useState, useEffect } from 'react'; // <-- ADDED IMPORT
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import styles from '../styles/Home.module.css';
 
-// --- NEW LINE (REPLACE WITH YOUR PROXY WORKER URL) ---
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // <-- REPLACE THIS
+// --- NEW PROXY URL for BEU API ---
+// REPLACE 'walla.workers.dev' with your proxy worker's domain
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
 
 export default function Home() {
   const [examGroups, setExamGroups] = useState([]);
@@ -42,7 +43,7 @@ export default function Home() {
         setExamGroups(groups);
       } catch (err) {
         console.error("Failed to fetch exam list:", err);
-        setError(`Could not load exam list: ${err.message}`);
+        setError(`Could not load exam list: ${err.message}. Make sure the proxy worker is deployed.`);
       } finally {
         setIsLoading(false);
       }
@@ -92,7 +93,6 @@ export default function Home() {
                                             <td className={styles.examName}>
                                                 {group.courseName === 'B.Tech' ? (
                                                     <Link href={`/results?examId=${exam.id}`} passHref>
-                                                        {/* <a> is needed for passHref */}
                                                         <a>{exam.examName}</a>
                                                     </Link>
                                                 ) : (

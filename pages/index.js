@@ -5,9 +5,7 @@ import Link from 'next/link';
 import styles from '../styles/Home.module.css';
 
 // --- NEW LINE (REPLACE WITH YOUR PROXY WORKER URL) ---
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
-// --- OLD LINE (DELETE) ---
-// const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // <-- REPLACE THIS
 
 export default function Home() {
   const [examGroups, setExamGroups] = useState([]);
@@ -21,8 +19,9 @@ export default function Home() {
       try {
         const response = await fetch(BEU_EXAM_LIST_URL); // Calls your proxy
         if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
+           let errData;
+           try { errData = await response.json(); } catch(e) { errData = { details: await response.text() } }
+           throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
         }
         const data = await response.json();
         
@@ -49,7 +48,7 @@ export default function Home() {
       }
     };
     fetchExams();
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, []); // Empty dependency array
 
   return (
     <>
@@ -93,7 +92,7 @@ export default function Home() {
                                             <td className={styles.examName}>
                                                 {group.courseName === 'B.Tech' ? (
                                                     <Link href={`/results?examId=${exam.id}`} passHref>
-                                                        {/* <a> is needed inside Link for passHref to work correctly with non-<a> children */}
+                                                        {/* <a> is needed for passHref */}
                                                         <a>{exam.examName}</a>
                                                     </Link>
                                                 ) : (
@@ -119,4 +118,4 @@ export default function Home() {
       <footer> {/* Empty footer */} </footer>
     </>
   );
-              }
+}

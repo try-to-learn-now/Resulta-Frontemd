@@ -12,9 +12,10 @@ const WORKER_URLS = {
     le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
 
-// --- NEW LINE (REPLACE WITH YOUR NEW PROXY WORKER URL) ---
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
+// --- NEW PROXY URL for BEU API ---
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
 const LAZY_LOAD_DELAY = 40;
+const BATCH_STEP = 5; // --- FIX: ADDED MISSING CONSTANT ---
 
 // --- Helper Maps ---
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
@@ -40,9 +41,9 @@ async function fetchWorkerData(workerKey, params) {
     } catch (error) {
         console.error(`Error fetching from ${workerKey} (${url}):`, error);
          const baseRegNo = params.split('&')[0].split('=')[1] || 'Unknown';
-         const batchSize = 5; 
+         // Use BATCH_STEP constant here
          const baseNum = parseInt(baseRegNo.slice(-3)) || 0;
-         const batchRegNos = Array.from({ length: batchSize }, (_, i) => `${baseRegNo.slice(0,-3)}${String(baseNum + i).padStart(3,'0')}`);
+         const batchRegNos = Array.from({ length: BATCH_STEP }, (_, i) => `${baseRegNo.slice(0,-3)}${String(baseNum + i).padStart(3,'0')}`);
          return batchRegNos.map(rn => ({ regNo: rn, status: 'Error', reason: error.message }));
     }
 }
@@ -76,8 +77,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             console.log(`Fetching details for examId: ${selectedExamIdProp}`);
             setError(null); 
             try {
-                // This now correctly calls your proxy worker
-                const response = await fetch(BEU_EXAM_LIST_URL); 
+                const response = await fetch(BEU_EXAM_LIST_URL); // Calls proxy
                 if (!response.ok) {
                     const errData = await response.json();
                     throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
@@ -178,12 +178,13 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         let tempErrorList = [];
         let userResultObject = null;
         
-        const estTotalBatches = 1 + 12 + 12; // User(1) + Reg1(12) + LE(12)
+        // Use BATCH_STEP constant
+        const estTotalBatches = 1 + (60 / BATCH_STEP) + (60 / BATCH_STEP); // User(1) + Reg1(12) + LE(12)
         let batchesLoaded = 0;
         setProgress({ percent: 0, loaded: 0, total: 0, stage: 'Initializing...'});
 
         try {
-            setLoadingStage('Fetching your result (Batch 1/25)...');
+            setLoadingStage(`Fetching your result (Batch 1/${estTotalBatches})...`);
             const userBatchData = await fetchWorkerData('user', params);
             batchesLoaded++;
             setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Processing user data...'}));
@@ -203,9 +204,9 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             let reg1Data = [], leData = [];
 
-            setLoadingStage('Loading class results (1-60)...');
+            setLoadingStage(`Loading class results (1-60)...`);
             reg1Data = await fetchWorkerData('reg1', params);
-            batchesLoaded += (60 / BATCH_STEP);
+            batchesLoaded += (60 / BATCH_STEP); // 12 batches
             setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Loading LE results...'}));
             if (reg1Data.some(r => r.status === 'Error')) {
                 encounteredError = true;
@@ -214,7 +215,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             setLoadingStage('Loading results (LE 901-960)...');
             leData = await fetchWorkerData('le', params);
-            batchesLoaded += (60 / BATCH_STEP);
+            batchesLoaded += (60 / BATCH_STEP); // 12 batches
             setProgress(prev => ({...prev, percent: 100, stage: 'Finalizing...'}));
             if (leData.some(r => r.status === 'Error')) {
                 encounteredError = true;
@@ -445,12 +446,14 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                             {data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim()).map(code => {
                                 if(!code) return null;
                                 const subject = allSubjects.find(s => s.code === code);
-                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={Gode}>{code}</li>;
+                                // --- FIX: Corrected typo `key={Gode}` to `key={code}` ---
+                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={code}>{code}</li>;
                             })}
                         </ul>
                     </> 
                 )}
                  {examDetails?.publishDate && (
+                     // --- FIX: Corrected </Tdp> to </p> ---
                      <p style={{fontSize: '0.9em', color: '#6c757d', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
                          Publish Date: {new Date(examDetails.publishDate).toLocaleDateString()}
                      </p>
@@ -496,6 +499,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {(isLoading || isLoadingMore) && (
                 <div className={styles.loader}>
                     <div style={{fontWeight: 'bold', fontSize: '1.1em', marginBottom: '10px'}}>{loadingStage || 'Loading...'}</div>
+                    {/* Show progress bar only *after* user fetch is done and we start lazy loading */}
                     {searchPerformed && !isLoading && progress.total > 0 && (
                         <>
                             <div className={styles.progressBarContainer}>

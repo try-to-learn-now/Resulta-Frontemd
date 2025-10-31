@@ -14,7 +14,9 @@ const WORKER_URLS = {
 // This is your exam list proxy. We MUST use it here for the cache.
 const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE
 const LAZY_LOAD_DELAY = 40; 
-const BATCH_STEP = 5; // --- FIX: ADDED MISSING CONSTANT ---
+const BATCH_STEP = 5;
+// --- IMPORTANT: Set your website name for the PDF footer ---
+const MY_WEBSITE_NAME = "[YourWebsiteName.com]"; // <-- *** CHANGE THIS ***
 
 // --- Helper Maps ---
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
@@ -65,8 +67,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     const [showLoadMore, setShowLoadMore] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [fetchedReg2, setFetchedReg2] = useState(false);
-    const [modalOpen, setModalOpen] = useState(false);
-    const [selectedStudentData, setSelectedStudentData] = useState(null);
+    // --- DELETED modalOpen and selectedStudentData states ---
 
     // --- Fetch Exam Details ---
     useEffect(() => {
@@ -142,10 +143,10 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         }
         const timer = setTimeout(() => {
             const student = fetchedDataQueue[0];
-            // Only add to class results if it's NOT the user
-            if(student.regNo !== regNo) {
-                 setClassResults(prev => mergeAndSortResults(prev, [student]));
-            }
+            // --- UPDATED LOGIC ---
+            // Add student to class results (merge handles duplicates)
+            setClassResults(prev => mergeAndSortResults(prev, [student]));
+
             setProgress(prev => {
                 const loaded = prev.loaded + 1;
                 const percent = prev.total > 0 ? Math.round((loaded / prev.total) * 100) : 0;
@@ -159,7 +160,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             setFetchedDataQueue(prev => prev.slice(1));
         }, LAZY_LOAD_DELAY); 
         return () => clearTimeout(timer); 
-    }, [fetchedDataQueue, regNo, isLoading, isLoadingMore, searchPerformed]);
+    }, [fetchedDataQueue, isLoading, isLoadingMore, searchPerformed]); // --- UPDATED: Removed regNo dependency
 
 
     // --- Search Function ---
@@ -235,11 +236,13 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             const combinedClassData = [...userBatchData, ...reg1Data, ...leData];
             // --- END FIX 2 ---
             
+            // We now filter "Record not found" *here*, so the total is accurate
             const filteredClassData = combinedClassData.filter(r => r.status !== 'Record not found');
             
             const totalStudentsFound = filteredClassData.length;
             setProgress({ percent: 0, loaded: 0, total: totalStudentsFound, stage: `Loading ${totalStudentsFound} students...`});
             
+            // Add all results to the lazy-load queue
             setFetchedDataQueue(filteredClassData);
             
             // Show "Load More" button (this logic is good)
@@ -268,13 +271,14 @@ const ResultFinder = ({ selectedExamIdProp }) => {
          const oldTotal = progress.total;
          const oldLoaded = progress.loaded;
          const newBatches = (120 - 60) / BATCH_STEP;
-         const estimatedNewTotal = oldTotal + (newBatches * 4);
+         const estimatedNewTotal = oldTotal + (newBatches * 4); // Estimate
          setProgress({ percent: Math.round((oldLoaded / estimatedNewTotal) * 100), loaded: oldLoaded, total: estimatedNewTotal, stage: 'Loading results (61-120)...'});
          
          try {
              const reg2Data = await fetchWorkerData('reg2', lastSearchParams);
              const filteredReg2Data = reg2Data.filter(r => r.status !== 'Record not found');
              
+             // Get an accurate total
              const accurateTotal = oldLoaded + filteredReg2Data.length;
              setProgress(prev => ({...prev, total: accurateTotal}));
 
@@ -283,6 +287,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                   setErrorList(prev => [...new Set([...prev, ...reg2Data.filter(r => r.status === 'Error').map(r => r.regNo)])].sort());
              }
              
+             // Add new data to the lazy-load queue
              setFetchedDataQueue(prev => [...prev, ...filteredReg2Data]);
              setShowLoadMore(false); setFetchedReg2(true);
          } catch (error) {
@@ -293,191 +298,516 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     };
 
 
-    // --- Event Handlers & Modal ---
+    // --- Event Handlers ---
     const handleSearch = (e) => { e.preventDefault(); executeSearch(false); };
     const handleRetry = () => { if (lastSearchParams) executeSearch(true); };
-    const openModal = (studentResult) => {
-        if (studentResult?.status === 'success' && studentResult.data) { setSelectedStudentData(studentResult.data); setModalOpen(true); }
-        else if (studentResult){ alert(`Cannot show details for ${studentResult.regNo}: Status is ${studentResult.status}`); }
+    // --- DELETED modal functions ---
+
+    
+    // ---
+    // ---
+    // --- NEW PDF GENERATION ---
+    // ---
+    // ---
+    
+    // --- PDF Helper: Add a "Cover Page" (NEW) ---
+    const addCoverPage = (doc, allResults) => {
+        const examDetails = getSelectedExamDetails();
+        doc.setFontSize(22);
+        doc.setFont(undefined, 'bold');
+        doc.text("BEU Examination Result", doc.internal.pageSize.width / 2, 80, { align: 'center' });
+        
+        doc.setFontSize(16);
+        doc.setFont(undefined, 'normal');
+        doc.text(examDetails?.examName || 'Exam', doc.internal.pageSize.width / 2, 100, { align: 'center' });
+        
+        doc.setFontSize(12);
+        doc.autoTable({
+            startY: 120,
+            theme: 'plain',
+            margin: { left: 40, right: 40 },
+            body: [
+                ['Session', examDetails?.session || 'N/A'],
+                ['Exam Held', examDetails?.examHeld || 'N/A'],
+                ['Total Students Found', allResults.length],
+                ['Generated By', MY_WEBSITE_NAME],
+                ['Generated On', new Date().toLocaleDateString('en-GB')],
+            ],
+            styles: {
+                fontSize: 12,
+                cellPadding: 4,
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold', minCellWidth: 50 },
+                1: { minCellWidth: 80 }
+            }
+        });
+        
+        doc.setFontSize(10);
+        doc.setTextColor(150);
+        doc.text("This document is a compilation of publicly available results.", doc.internal.pageSize.width / 2, 270, { align: 'center' });
+        doc.setTextColor(0);
     };
-    const closeModal = () => setModalOpen(false);
 
+    // --- PDF Helper: Add a "Summary Page" (NEW) ---
+    const addSummaryPage = (doc, allResults) => {
+        doc.addPage();
+        doc.setFontSize(18);
+        doc.setFont(undefined, 'bold');
+        doc.text("Result Summary", 14, 22);
+        
+        const successStudents = allResults.filter(r => r.status === 'success').map(r => r.regNo);
+        const errorStudents = allResults.filter(r => r.status === 'Error').map(r => r.regNo);
+        // We ignore "Record not found" and "Not Found" as requested
 
-    // --- PDF Generation ---
+        let yPos = 40;
+
+        if (successStudents.length > 0) {
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.setTextColor(0, 100, 0); // Green
+            doc.text(`Successful Students (${successStudents.length})`, 14, yPos);
+            yPos += 8;
+            
+            doc.setFontSize(9);
+            doc.setFont(undefined, 'normal');
+            doc.setTextColor(0);
+            doc.autoTable({
+                body: chunkArray(successStudents, 5), // 5 columns
+                startY: yPos,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 1 },
+            });
+            yPos = doc.lastAutoTable.finalY + 15;
+        }
+
+        if (errorStudents.length > 0) {
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.setTextColor(220, 53, 69); // Red
+            doc.text(`Failed to Fetch (Error/Timeout) (${errorStudents.length})`, 14, yPos);
+            yPos += 8;
+            
+            doc.setFontSize(9);
+            doc.setFont(undefined, 'normal');
+            doc.setTextColor(0);
+            doc.autoTable({
+                body: chunkArray(errorStudents, 5), // 5 columns
+                startY: yPos,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 1 },
+            });
+        }
+    };
+    
+    // --- PDF Helper: Chunk array for columns ---
+    const chunkArray = (arr, chunkSize) => {
+        const chunks = [];
+        for (let i = 0; i < arr.length; i += chunkSize) {
+            chunks.push(arr.slice(i, i + chunkSize));
+        }
+        return chunks;
+    };
+
+    // --- PDF Helper: Draw the NEW "fast as fuck" demo page (REBUILT) ---
+    const drawStudentPdfPage = (doc, studentData, examDetails) => {
+        const data = studentData.data;
+        if (!data) return; // Don't add pages for error students
+        
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'bold');
+        doc.text("BIHAR ENGINEERING UNIVERSITY, PATNA", doc.internal.pageSize.width / 2, 20, { align: 'center' });
+        
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.text(examDetails?.examName || 'Exam Result', doc.internal.pageSize.width / 2, 28, { align: 'center' });
+
+        // --- Student Info Table (2-column layout) ---
+        doc.autoTable({
+            startY: 40,
+            theme: 'plain',
+            body: [
+                ['Registration No:', data.redg_no || 'N/A', 'Semester:', data.semester || 'N/A'],
+                ['Student Name:', data.name || 'N/A', '', ''],
+                ['College Name:', data.college_name || 'N/A', '', ''],
+                ['Course Name:', data.course || 'N/A', '', ''],
+            ],
+            styles: {
+                fontSize: 9,
+                cellPadding: 1.5,
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold', minCellWidth: 35 },
+                1: { minCellWidth: 60 },
+                2: { fontStyle: 'bold', minCellWidth: 25 },
+                3: { minCellWidth: 40 }
+            }
+        });
+        
+        let yPos = doc.lastAutoTable.finalY + 5;
+
+        // --- Theory Subjects ---
+        if (data.theorySubjects?.length > 0) {
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'bold');
+            doc.text("Theory Subjects", 14, yPos);
+            yPos += 3;
+            doc.autoTable({
+                head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]],
+                body: data.theorySubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']),
+                startY: yPos,
+                theme: 'grid',
+                styles: { fontSize: 9, cellPadding: 2 }, // Better padding
+                headStyles: { fontSize: 9, fillColor: [220, 220, 220], textColor: 0 },
+            });
+            yPos = doc.lastAutoTable.finalY + 5;
+        }
+
+        // --- Practical Subjects ---
+        if (data.practicalSubjects?.length > 0) {
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'bold');
+            doc.text("Practical Subjects", 14, yPos);
+            yPos += 3;
+            doc.autoTable({
+                head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]],
+                body: data.practicalSubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']),
+                startY: yPos,
+                theme: 'grid',
+                styles: { fontSize: 9, cellPadding: 2 }, // Better padding
+                headStyles: { fontSize: 9, fillColor: [220, 220, 220], textColor: 0 },
+            });
+            yPos = doc.lastAutoTable.finalY + 5;
+        }
+        
+        // --- SMART LOGIC: Get current SGPA from array ---
+        const currentSem = getArabicSemester(data.semester);
+        const currentSgpa = data.sgpa?.[currentSem - 1] ?? 'N/A';
+        const currentCgpa = data.cgpa || 'N/A';
+
+        // --- Remarks Table (SGPA/CGPA/Result) ---
+        doc.autoTable({
+            startY: yPos,
+            theme: 'grid',
+            body: [
+                ['SGPA', currentSgpa],
+                ['CGPA', currentCgpa],
+                ['Result', data.fail_any || 'N/A'],
+            ],
+            styles: {
+                fontSize: 10,
+                cellPadding: 3,
+                halign: 'center'
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold', fillColor: [242, 242, 242] },
+                1: { fontStyle: 'bold' }
+            },
+            didParseCell: (hookData) => {
+                if (hookData.column.index === 1 && hookData.row.index === 2) {
+                    hookData.cell.styles.textColor = (data.fail_any === 'PASS') ? [0, 100, 0] : [220, 53, 69];
+                }
+            }
+        });
+        yPos = doc.lastAutoTable.finalY;
+
+        // --- SMART LOGIC: Failed Subject 3-per-line ---
+        if (data.fail_any && data.fail_any !== 'PASS') {
+            const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
+            const failedCodes = data.fail_any.replace("FAIL:", "").split(',').map(c => c.trim());
+            const failedSubjects = failedCodes.map(code => {
+                const subject = allSubjects.find(s => s.code === code);
+                return subject ? `${subject.name} (${subject.code})` : `Unknown (${code})`;
+            }).filter(Boolean);
+
+            if (failedSubjects.length > 0) {
+                yPos += 5;
+                doc.setFontSize(11);
+                doc.setFont(undefined, 'bold');
+                doc.text("Remarks: FAIL (Back Paper)", 14, yPos);
+                yPos += 3;
+                
+                // Chunk into rows of 3
+                const failedRows = chunkArray(failedSubjects, 3);
+                
+                doc.autoTable({
+                    startY: yPos,
+                    theme: 'grid',
+                    body: failedRows,
+                    styles: {
+                        fontSize: 9,
+                        cellPadding: 3,
+                        textColor: [220, 53, 69], // Red text
+                        fillColor: [248, 215, 218]  // Light red bg
+                    },
+                    headStyles: { hidden: true }
+                });
+                yPos = doc.lastAutoTable.finalY;
+            }
+        }
+        
+        // --- SGPA History Table ---
+        if (data.sgpa?.some(s => s !== null)) {
+            yPos += 5;
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'bold');
+            doc.text("SGPA History", 14, yPos);
+            yPos += 3;
+            
+            const sgpaCols = [["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]];
+            const sgpaRowPadded = [...(data.sgpa || [])];
+            while(sgpaRowPadded.length < 8) sgpaRowPadded.push(null);
+            const sgpaRow = sgpaRowPadded.map(s => s ?? 'NA');
+            
+            doc.autoTable({
+                head: sgpaCols,
+                body: [sgpaRow],
+                startY: yPos,
+                theme: 'grid',
+                styles: { fontSize: 9, cellPadding: 2, halign: 'center' },
+                headStyles: { fontSize: 9, fontStyle: 'bold', fillColor: [242, 242, 242], textColor: 0 }
+            });
+            yPos = doc.lastAutoTable.finalY;
+        }
+
+        // --- Footer (REBUILT) ---
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        doc.text(
+            `Page ${pageCount} | Generated by ${MY_WEBSITE_NAME} - ${new Date().toLocaleDateString('en-GB')}`,
+            doc.internal.pageSize.width / 2,
+            doc.internal.pageSize.height - 10,
+            { align: 'center' }
+        );
+        doc.setTextColor(0);
+    };
+
+    // --- PDF Main: Generate Class PDF (REBUILT) ---
     const generatePdf = () => {
          let resultsForPdf = [];
          if (userResult?.status === 'success') { resultsForPdf.push(userResult); }
          resultsForPdf = [...resultsForPdf, ...classResults];
          const successfulResults = resultsForPdf.filter(res => res.status === 'success');
-         const uniqueResults = Array.from(new Map(successfulResults.map(item => [item.regNo, item])).values());
-         uniqueResults.sort((a,b) => (a.regNo || "").localeCompare(b.regNo || ""));
+         const allFetchedResults = Array.from(new Map(resultsForPdf.map(item => [item.regNo, item])).values());
+         const uniqueSuccessResults = Array.from(new Map(successfulResults.map(item => [item.regNo, item])).values());
+         uniqueSuccessResults.sort((a,b) => (a.regNo || "").localeCompare(b.regNo || ""));
 
-        if (uniqueResults.length === 0) { alert("No successful results found to generate PDF."); return; }
+        if (uniqueSuccessResults.length === 0) { alert("No successful results found to generate PDF."); return; }
         
-        alert(`Generating PDF... This may take a moment for ${uniqueResults.length} students.`);
+        alert(`Generating PDF... This may take a moment for ${uniqueSuccessResults.length} students.`);
 
-        const doc = new jsPDF({ orientation: 'landscape' });
-        const tableColumn = ["Reg No", "Name", "SGPA", "CGPA", "Result"];
-        const tableRows = uniqueResults.map(result => {
-             const currentSem = getArabicSemester(result.data?.semester);
-             return [ result.regNo, result.data?.name||'N/A', result.data?.sgpa?.[currentSem - 1] ?? 'N/A', result.data?.cgpa||'N/A', result.data?.fail_any||'N/A', ]; });
-
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const examDetails = getSelectedExamDetails();
-        doc.setFontSize(16); doc.setFont(undefined, 'bold'); doc.text(`BEU Results - ${examDetails?.examName || 'Exam'}`, 14, 22);
-        doc.setFont(undefined, 'normal'); doc.setFontSize(11); doc.setTextColor(100);
-        doc.text(`Session: ${examDetails?.session || 'N/A'} | Exam Held: ${examDetails?.examHeld || 'N/A'}`, 14, 28); doc.setTextColor(0);
-         doc.text(`Total Students Found: ${uniqueResults.length}`, 14, 34);
+        
+        // --- NEW PAGE 1: Cover Page ---
+        addCoverPage(doc, uniqueSuccessResults);
+        
+        // --- NEW PAGE 2: Summary Page ---
+        addSummaryPage(doc, allFetchedResults);
 
-        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 40, theme: 'grid', headStyles: { fillColor: [22, 160, 133], textColor: 255 }, styles: { fontSize: 8, cellPadding: 1.5 }, alternateRowStyles: { fillColor: [245, 245, 245] }, didDrawPage: (data) => { doc.setFontSize(8); doc.setTextColor(100); doc.text('Page ' + doc.internal.getNumberOfPages() + ' | Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), data.settings.margin.left, doc.internal.pageSize.height - 10); } });
-
-         console.log(`PDF: Adding ${uniqueResults.length} detailed pages...`);
-         uniqueResults.forEach((student, index) => {
+        // --- Page 3+: Student Result Pages ---
+         uniqueSuccessResults.forEach((student) => {
              console.log(`PDF: Adding page for ${student.regNo}`);
-             addStudentDetailToPdf(doc, student.data, index + 2, examDetails, true);
+             drawStudentPdfPage(doc, student, examDetails);
          });
 
         doc.save(`BEU_Results_${examDetails?.semId || 'Sem'}_${examDetails?.batchYear || 'Year'}_FullClass.pdf`);
     };
 
+    // --- PDF Main: Generate Single PDF (REBUILT) ---
     const generateSinglePdf = () => {
          if (!userResult || userResult.status !== 'success' || !userResult.data) { alert('Your result was not found successfully.'); return; }
-          const doc = new jsPDF({ orientation: 'portrait' }); 
-          addStudentDetailToPdf(doc, userResult.data, 1, getSelectedExamDetails(), true);
-          doc.save(`BEU_Result_${userResult.regNo}_${selectedExamDetails?.semId || 'Sem'}.pdf`);
+         
+         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' }); 
+         const examDetails = getSelectedExamDetails();
+         
+         drawStudentPdfPage(doc, userResult, examDetails);
+         
+         doc.save(`BEU_Result_${userResult.regNo}_${selectedExamDetails?.semId || 'Sem'}.pdf`);
     };
 
-     // Helper to add detailed student result page(s) to PDF
-     const addStudentDetailToPdf = (doc, data, pageNum, examDetails, addWatermark = false) => {
-          let yPos = 20; const pageHeight = doc.internal.pageSize.height; const bottomMargin = 20; const leftMargin = 14; const rightMargin = doc.internal.pageSize.width - 14;
-        if (!examDetails) examDetails = getSelectedExamDetails();
+     // ---
+     // ---
+     // --- END NEW PDF GENERATION ---
+     // ---
+     // ---
 
-        doc.setFontSize(14); doc.setFont(undefined, 'bold'); doc.text("BIHAR ENGINEERING UNIVERSITY, PATNA", doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 6;
-        doc.setFontSize(12); doc.setFont(undefined, 'normal'); doc.text(examDetails?.examName || 'Exam Result', doc.internal.pageSize.width / 2, yPos, { align: 'center' }); yPos += 10;
 
-        doc.setFontSize(10); doc.text(`Registration No: ${data.redg_no || 'N/A'}`, leftMargin, yPos); doc.text(`Semester: ${data.semester || 'N/A'}`, rightMargin - 40, yPos); yPos += 6; doc.text(`Student Name: ${data.name || 'N/A'}`, leftMargin, yPos); yPos += 6; doc.text(`College: ${data.college_name || 'N/A'} (${data.college_code || 'N/A'})`, leftMargin, yPos); yPos += 6; doc.text(`Course: ${data.course || 'N/A'} (${data.course_code || 'N/A'})`, leftMargin, yPos); yPos += 10;
-
-        const checkPageBreak = (currentY, requiredHeight) => { if (currentY + requiredHeight > pageHeight - bottomMargin) { doc.addPage(); return 20; } return currentY; };
+     // ---
+     // ---
+     // --- NEW "FAST AS FUCK" RESULT BLOCK ---
+     // ---
+     // ---
+     
+     // --- NEW Helper: Render Failed Subjects (3-per-line) ---
+     const FailedSubjectsBlock = ({ data }) => {
+        if (!data.fail_any || data.fail_any === 'PASS') {
+            return null; // Don't show if pass
+        }
+        
         const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
+        const failedCodes = data.fail_any.replace("FAIL:", "").split(',').map(c => c.trim());
+        
+        const failedSubjects = failedCodes.map(code => {
+            const subject = allSubjects.find(s => s.code === code);
+            return subject ? { code: code, name: subject.name, type: (subject.ia === undefined ? 'Practical' : 'Theory') } : { code: code, name: `Unknown (${code})`, type: 'Unknown' };
+        }).filter(Boolean);
 
-        if (data.theorySubjects?.length > 0) { yPos = checkPageBreak(yPos, (data.theorySubjects.length + 1) * 7 + 15); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("Theory Subjects", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); doc.autoTable({ head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]], body: data.theorySubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']), startY: yPos, theme: 'grid', styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fontSize: 8, fillColor: [220, 220, 220], textColor: 0 }, alternateRowStyles: { fillColor: [248, 248, 248] }, pageBreak: 'auto', bodyStyles: { minCellHeight: 6 } }); yPos = doc.lastAutoTable.finalY + 8; }
+        if (failedSubjects.length === 0) return null;
 
-        if (data.practicalSubjects?.length > 0) { yPos = checkPageBreak(yPos, (data.practicalSubjects.length + 1) * 7 + 15); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("Practical Subjects", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); doc.autoTable({ head: [["Code", "Subject Name", "ESE", "IA", "Total", "Grade", "Credit"]], body: data.practicalSubjects.map(sub => [sub.code, sub.name, sub.ese ?? '-', sub.ia ?? '-', sub.total ?? '-', sub.grade ?? '-', sub.credit ?? '-']), startY: yPos, theme: 'grid', styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fontSize: 8, fillColor: [220, 220, 220], textColor: 0 }, alternateRowStyles: { fillColor: [248, 248, 248] }, pageBreak: 'auto', bodyStyles: { minCellHeight: 6 } }); yPos = doc.lastAutoTable.finalY + 10; }
+        // --- SMART LOGIC: Chunk into rows of 3 ---
+        const chunkedFailSubjects = [];
+        for (let i = 0; i < failedSubjects.length; i += 3) {
+            chunkedFailSubjects.push(failedSubjects.slice(i, i + 3));
+        }
 
-        yPos = checkPageBreak(yPos, 30); doc.setFontSize(10); const currentSem = getArabicSemester(data.semester); doc.text(`SGPA (Sem ${data.semester || '?'}): ${data.sgpa?.[currentSem - 1] ?? 'N/A'}`, leftMargin, yPos); yPos += 6; doc.text(`Overall CGPA: ${data.cgpa || 'N/A'}`, leftMargin, yPos); yPos += 6; doc.setFont(undefined, 'bold'); doc.text(`Final Result Status: ${data.fail_any || 'N/A'}`, leftMargin, yPos); doc.setFont(undefined, 'normal'); yPos += 10;
-
-        if (data.sgpa?.some(s => s !== null)) { yPos = checkPageBreak(yPos, 25); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text("SGPA History", leftMargin, yPos); yPos += 7; doc.setFont(undefined, 'normal'); const sgpaCols = [["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]]; const sgpaRowPadded = [...(data.sgpa || [])]; while(sgpaRowPadded.length < 8) sgpaRowPadded.push(null); const sgpaRow = sgpaRowPadded.map(s => s ?? 'NA'); doc.autoTable({ head: sgpaCols, body: [sgpaRow], startY: yPos, theme: 'plain', styles: { fontSize: 9, cellPadding: 1, halign: 'center' }, headStyles: { fontSize: 9, fontStyle: 'bold' } }); yPos = doc.lastAutoTable.finalY + 8; }
-
-         if (data.fail_any && data.fail_any !== 'PASS') { 
-             yPos = checkPageBreak(yPos, 15);
-             doc.setFontSize(10); doc.setTextColor(255, 0, 0); doc.setFont(undefined, 'bold');
-             doc.text(`Remarks: ${data.fail_any.split(':')[0]}`, leftMargin, yPos); yPos+=6;
-             
-             const failedCodes = data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim());
-             failedCodes.forEach(code => {
-                 if(!code) return;
-                 const subject = allSubjects.find(s => s.code === code);
-                 if(subject) {
-                     yPos = checkPageBreak(yPos, 6);
-                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0);
-                     doc.text(`- ${subject.name} (${subject.code})`, leftMargin + 5, yPos); yPos+=6;
-                 } else {
-                     yPos = checkPageBreak(yPos, 6);
-                     doc.setFont(undefined, 'normal'); doc.setTextColor(150, 0, 0);
-                     doc.text(`- Unknown Subject (${code})`, leftMargin + 5, yPos); yPos+=6;
-                 }
-             });
-             doc.setTextColor(0); doc.setFont(undefined, 'normal'); 
-         }
-
-         if(examDetails?.publishDate){ yPos = checkPageBreak(yPos, 10); doc.setFontSize(9); doc.setTextColor(100); doc.text(`Publish Date: ${new Date(examDetails.publishDate).toLocaleDateString()}`, leftMargin, yPos); doc.setTextColor(0); yPos += 10; }
-
-          if (addWatermark) {
-             const pageCount = doc.internal.getNumberOfPages();
-             const startPage = pageNum === 1 ? 1 : doc.internal.getNumberOfPages(); 
-             for(let i = startPage; i <= doc.internal.getNumberOfPages(); i++) {
-                doc.setPage(i);
-                doc.setFontSize(40); doc.setTextColor(230, 230, 230); doc.setFont(undefined, 'bold');
-                doc.text('resulta.beunotes.workers.dev', doc.internal.pageSize.width / 2, doc.internal.pageSize.height / 2, { angle: -45, align: 'center' });
-             }
-             doc.setTextColor(0); doc.setFont(undefined, 'normal');
-          }
-
-          doc.setPage(doc.internal.getNumberOfPages()); 
-          yPos = doc.internal.pageSize.height - 10;
-          doc.setFontSize(8); doc.setTextColor(100);
-          const pageStr = pageNum ? `Page ${pageNum} | ` : '';
-          doc.text(pageStr + 'Generated via BeuMate (Concept) - ' + new Date().toLocaleString(), leftMargin, yPos);
+        return (
+            <div className={styles.failRemarks}>
+                <h4>Remarks: FAIL (Back Paper)</h4>
+                {chunkedFailSubjects.map((row, index) => (
+                    <div key={index} className={styles.failedSubjectRow}>
+                        {row.map(sub => (
+                            <div key={sub.code} className={styles.failedSubject}>
+                                {sub.name} <span>({sub.type})</span>
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        );
      };
 
-     // --- Helper: Render Full Detailed Result (React Component) ---
-     const DetailedResultView = ({ studentResult }) => {
-         if (!studentResult || !studentResult.data) {
-             if (studentResult?.status === 'Record not found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Record not found for this exam.</p></div>; }
-             if (studentResult?.status === 'Error') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> <span className={styles.failStatus}>Error</span> - {studentResult.reason || 'Failed to fetch'}</p></div>; }
-             if (studentResult?.status === 'Not Found') { return <div style={{padding: '0 20px 15px 20px'}}><p><strong>Status:</strong> Not Found - Your registration number was not in the initial batch.</p></div>; }
-             return <div style={{padding: '0 20px 15px 20px'}}><p>Loading details...</p></div>;
+     // --- NEW Helper: Render a Single "Fast as Fuck" Result Card ---
+     const StudentResultBlock = ({ studentResult, isUser = false }) => {
+         if (!studentResult.data) {
+             // This renders the card for Error/Not Found students
+             if (studentResult.status === 'Error') {
+                 return (
+                    <div className={`${styles.resultPage} ${isUser ? styles.isUserResult : ''}`}>
+                         <div className={styles.resultHeader}>
+                            <h2>{studentResult.regNo}</h2>
+                         </div>
+                         <div className={styles.resultBody}>
+                             <p className={styles.failStatus}><strong>Status:</strong> Error - {studentResult.reason || 'Failed to fetch'}</p>
+                         </div>
+                    </div>
+                 );
+             }
+             // We don't render "Record not found"
+             return null;
          }
          
+         // This is a successful result
          const data = studentResult.data;
          const examDetails = getSelectedExamDetails();
-         const allSubjects = [...(data.theorySubjects || []), ...(data.practicalSubjects || [])];
+         
+         // --- SMART LOGIC: Get current SGPA from array ---
+         const currentSem = getArabicSemester(data.semester);
+         const currentSgpa = data.sgpa?.[currentSem - 1] ?? 'N/A';
+         const currentCgpa = data.cgpa || 'N/A';
+         
+         const sgpaRowPadded = [...(data.sgpa || [])];
+         while(sgpaRowPadded.length < 8) sgpaRowPadded.push(null);
+         const sgpaRow = sgpaRowPadded.map(s => s ?? 'NA');
 
          return (
-             <div className={styles.detailedResultScrollable}>
-                 <p><strong>Registration No:</strong> {data.redg_no} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; <strong>Semester:</strong> {data.semester}</p>
-                 <p><strong>Student Name:</strong> {data.name}</p>
-                 <p><strong>College:</strong> {data.college_name} ({data.college_code})</p>
-                 <p><strong>Course:</strong> {data.course} ({data.course_code})</p>
+             <div className={`${styles.resultPage} ${isUser ? styles.isUserResult : ''}`}>
+                <div className={styles.resultHeader}>
+                    <h2>BIHAR ENGINEERING UNIVERSITY, PATNA</h2>
+                    <p>{examDetails?.examName || 'Exam Result'}</p>
+                </div>
 
-                 <hr/><h3>Theory Subjects</h3>
-                 {data.theorySubjects?.length > 0 ? (
-                    <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
-                    {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                 ) : <p>No theory subjects.</p>}
+                <div className={styles.resultBody}>
+                    <table className={styles.studentInfo}>
+                        <tbody>
+                            <tr>
+                                <td>Registration No:</td>
+                                <td>{data.redg_no}</td>
+                                <td>Semester:</td>
+                                <td>{data.semester}</td>
+                            </tr>
+                            <tr>
+                                <td>Student Name:</td>
+                                <td colSpan="3">{data.name}</td>
+                            </tr>
+                            <tr>
+                                <td>College Name:</td>
+                                <td colSpan="3">{data.college_name} ({data.college_code})</td>
+                            </tr>
+                             <tr>
+                                <td>Course Name:</td>
+                                <td colSpan="3">{data.course} ({data.course_code})</td>
+                            </tr>
+                        </tbody>
+                    </table>
 
-                 <hr/><h3>Practical Subjects</h3>
-                 {data.practicalSubjects?.length > 0 ? (
-                    <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
-                    {data.practicalSubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                  ): <p>No practical subjects found.</p>}
-                 
-                 <hr/><div style={{marginTop: '15px'}}>
-                  <p><strong>SGPA (Current Sem):</strong> {data.sgpa?.[getArabicSemester(data.semester) - 1] ?? 'N/A'}</p>
-                  <p><strong>CGPA:</strong> {data.cgpa || 'N/A'}</p>
-                  <p><strong>Status:</strong> <span className={data.fail_any?.includes('PASS') ? styles.passStatus : styles.failStatus}>{data.fail_any || 'N/A'}</span></p>
-                 </div>
+                    {data.theorySubjects?.length > 0 && (<>
+                        <h3>Theory Subjects</h3>
+                        <table className={styles.marksTable}>
+                            <thead><tr><th>Code</th><th>Subject Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead>
+                            <tbody>
+                                {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}
+                            </tbody>
+                        </table>
+                    </>)}
+                    
+                    {data.practicalSubjects?.length > 0 && (<>
+                        <h3>Practical Subjects</h3>
+                        <table className={styles.marksTable}>
+                            <thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead>
+                            <tbody>
+                                {data.practicalSubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}
+                            </tbody>
+                        </table>
+                    </>)}
 
-                {data.sgpa?.some(s => s !== null) && ( <> <hr/><h3 style={{marginTop: '15px'}}>SGPA History</h3> <table className={styles.modalTable}><thead><tr><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th><th>VI</th><th>VII</th><th>VIII</th></tr></thead><tbody><tr>{Array.from({ length: 8 }).map((_, i) => <td key={i} style={{textAlign:'center'}}>{data.sgpa[i] ?? 'NA'}</td>)}</tr></tbody></table></> )}
+                    <table className={styles.remarksTable}>
+                        <tbody>
+                            <tr>
+                                <td>SGPA</td>
+                                <td>{currentSgpa}</td>
+                                <td>CGPA</td>
+                                <td>{currentCgpa}</td>
+                                <td>Result</td>
+                                <td className={data.fail_any?.includes('PASS') ? styles.passStatus : styles.failStatus}>
+                                    {data.fail_any || 'N/A'}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    {/* --- NEW Failed Subject Block --- */}
+                    <FailedSubjectsBlock data={data} />
+                    
+                    {data.sgpa?.some(s => s !== null) && (
+                        <table className={styles.sgpaHistoryTable}>
+                            <thead><tr><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th><th>VI</th><th>VII</th><th>VIII</th></tr></thead>
+                            <tbody><tr>{sgpaRow.map((s, i) => <td key={i}>{s}</td>)}</tr></tbody>
+                        </table>
+                    )}
+                </div>
                 
-                {data.fail_any && data.fail_any !== 'PASS' && ( 
-                    <> 
-                        <hr/> <h3 style={{marginTop: '15px'}} className={styles.failStatus}>Remarks: {data.fail_any.split(':')[0]}</h3>
-                        <ul style={{color: '#dc3545', fontSize: '0.9em', paddingLeft: '20px', margin: '5px 0'}}>
-                            {data.fail_any.replace("FAIL:", "").replace(/\s/g, "").split(',').map(code => code.trim()).map(code => {
-                                if(!code) return null;
-                                const subject = allSubjects.find(s => s.code === code);
-                                // --- FIX: Corrected typo `key={Gode}` to `key={code}` ---
-                                return subject ? <li key={code}>{subject.name} ({subject.code})</li> : <li key={code}>{code}</li>;
-                            })}
-                        </ul>
-                    </> 
-                )}
-                 {examDetails?.publishDate && (
-                     // --- FIX: Corrected </Tdp> to </p> ---
-                     <p style={{fontSize: '0.9em', color: '#6c757d', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
-                         Publish Date: {new Date(examDetails.publishDate).toLocaleDateString()}
-                     </p>
-                 )}
+                <div className={styles.resultFooter}>
+                    Generated by {MY_WEBSITE_NAME}
+                </div>
              </div>
          );
      };
 
 
-    // --- JSX ---
+    // ---
+    // ---
+    // --- END NEW RESULT BLOCK ---
+    // ---
+    // ---
+
+
+    // --- JSX (Main Page Render) ---
     return (
         <div className={styles.container}>
             <h1 className={styles.title}>{selectedExamDetails?.examName || 'B.Tech Result Finder'}</h1>
-            {/* --- FIX: Changed </Fp> to </p> --- */}
             <p style={{textAlign: 'center', marginTop: '-25px', marginBottom: '25px', color: '#555'}}>
                 {selectedExamDetails ? `Session: ${selectedExamDetails.session} | Exam Held: ${selectedExamDetails.examHeld}` : (selectedExamIdProp ? "Loading exam details..." : "No exam selected.")}
             </p>
@@ -492,7 +822,6 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                     <button type="submit" disabled={isLoading || isLoadingMore || !selectedExamDetails || !regNo} className={`${styles.button} ${styles.buttonPrimary}`} >
                          {isLoading || isLoadingMore ? 'Loading...' : 'Search Results'}
                     </button>
-                    {/* --- FIX: Changed type"button" to type="button" --- */}
                     {searchPerformed && !isLoading && !isLoadingMore && (userResult?.status === 'success') && (
                         <button type="button" onClick={generateSinglePdf} className={`${styles.button} ${styles.buttonSecondary}`}> Download Your PDF </button>
                     )}
@@ -525,15 +854,21 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             )}
             {error && <div className={styles.errorBox}>⚠️ {error}</div>}
 
-            {/* --- User Result Display (DETAILED) --- */}
+            
+            {/* ---
+            --- NEW "FAST AS FUCK" RENDER
+            ---
+            */}
+
+            {/* --- User Result Display (NEW) --- */}
             {userResult && (
-                 <div className={`${styles.userResultBox} ${styles[userResult.status?.replace(/\s+/g, '')?.toLowerCase() || 'unknown']}`}>
-                    <h2>Your Result</h2>
-                    <DetailedResultView studentResult={userResult} />
-                </div>
+                <>
+                    <h2 className={styles.tableTitle} style={{marginTop: '2rem'}}>Your Result</h2>
+                    <StudentResultBlock studentResult={userResult} isUser={true} />
+                </>
             )}
 
-             {/* --- Load More Button / Progress Info --- */}
+             {/* --- Load More Button --- */}
              {searchPerformed && !isLoading && showLoadMore && !isLoadingMore && !fetchedReg2 && (
                  <div className={styles.loadMoreContainer}>
                     <p>Showing results for 1-60 & LE students. Click below to load the remaining results for potentially larger colleges (61-120).</p>
@@ -544,36 +879,20 @@ const ResultFinder = ({ selectedExamIdProp }) => {
              )}
              {searchPerformed && !isLoading && !isLoadingMore && fetchedReg2 && <div className={styles.progressInfo}>All available results (1-120 & LE) loaded.</div>}
 
-            {/* --- Class Results Table --- */}
+            {/* --- Class Results (NEW) --- */}
              {searchPerformed && (classResults.length > 0 || (isLoading || isLoadingMore)) && (
-                <h2 className={styles.tableTitle}>{ (isLoading || isLoadingMore) ? 'Loading Class Results...' : 'Class Results (Excluding "Not Found")'}</h2>
+                <h2 className={styles.tableTitle}>{ (isLoading || isLoadingMore) ? 'Loading Class Results...' : 'Class Results'}</h2>
              )}
-            {searchPerformed && classResults.length > 0 && (
-                <div className={styles.tableContainer}>
-                    <table className={styles.resultsTable}>
-                        <thead> <tr> <th>Reg No</th> <th>Name</th> <th>SGPA</th> <th>CGPA</th> <th>Status</th> <th>Details / Reason</th> </tr> </thead>
-                        <tbody>
-                            {classResults
-                               .filter(result => result.regNo !== userResult?.regNo)
-                               .map((result, index) => (
-                                <tr key={result.regNo || `error-${index}`}
-                                    className={`${result.status === 'Error' ? styles.errorRow : ''}`}
-                                    onClick={() => openModal(result)}
-                                    style={{cursor: result.status === 'success' ? 'pointer' : 'default'}} >
-                                    <td>{result.regNo}</td>
-                                    <td>{result.data?.name || '---'}</td>
-                                    <td>{result.data?.sgpa?.[getArabicSemester(result.data?.semester || 'I') - 1] ?? '---'}</td>
-                                    <td>{result.data?.cgpa || '---'}</td>
-                                    <td className={result.data?.fail_any && !result.data.fail_any.includes('PASS') ? styles.failStatus : (result.status === 'Error' ? styles.failStatus : '')}>
-                                        {result.status === 'success' ? (result.data?.fail_any || 'N/A') : result.status}
-                                     </td>
-                                    <td className={styles.reasonCell}>{result.status === 'Error' ? result.reason : (result.status === 'success' ? 'Click row for details' : '---')}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+            
+            {/* This is where the lazy-load adds the new result blocks */}
+            {classResults
+                .filter(result => result.regNo !== userResult?.regNo) // Don't show user again
+                .map((result, index) => (
+                    <StudentResultBlock key={result.regNo || `error-${index}`} studentResult={result} />
+            ))}
+            
+            {/* --- DELETED old table and modal --- */}
+
             
             {/* --- Error List Box --- */}
             {searchPerformed && !isLoading && !isLoadingMore && errorList.length > 0 && (
@@ -589,15 +908,6 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             {/* No results message */}
             {searchPerformed && !isLoading && !userResult && classResults.length === 0 && !error && <p>No results found or loaded yet for the class.</p>}
 
-             {/* --- Modal for Full Details (Used for Class Results) --- */}
-             {modalOpen && selectedStudentData && (
-                <div className={styles.modalBackdrop} onClick={closeModal}>
-                    <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                         <button className={styles.modalCloseButton} onClick={closeModal}>&times;</button>
-                        <DetailedResultView studentResult={{data: selectedStudentData, status: 'success', regNo: selectedStudentData.redg_no}} />
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

@@ -4,8 +4,9 @@ import Head from 'next/head';
 import Link from 'next/link';
 import styles from '../styles/Home.module.css';
 
-// We call the REAL BEU API directly, as you proved we can.
-const REAL_BEU_API_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get'; 
+// --- IMPORTANT ---
+// We call your PROXY WORKER to stay in sync with the results page.
+const PROXY_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
 
 /**
  * This is the SERVER-SIDE function.
@@ -13,16 +14,16 @@ const REAL_BEU_API_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
  * It will run again ONLY when you hit your secret API.
  */
 export async function getStaticProps() {
-  console.log("SERVER: Building static page...");
+  console.log("SERVER: Building static page from PROXY...");
   let examGroups = [];
   let error = null;
 
   try {
-    // We call the BEU API directly. No proxy, no cold start.
-    const response = await fetch(REAL_BEU_API_URL); 
+    // We call the PROXY, not the real BEU API.
+    const response = await fetch(PROXY_EXAM_LIST_URL); 
     
     if (!response.ok) {
-       throw new Error(`BEU API Error: ${response.status}`);
+       throw new Error(`Proxy Worker Error: ${response.status}`);
     }
     
     const data = await response.json();
@@ -43,7 +44,7 @@ export async function getStaticProps() {
     }, []);
 
   } catch (err) {
-    console.error("Failed to fetch exam list during build:", err);
+    console.error("Failed to fetch exam list from proxy:", err);
     error = `Could not load exam list: ${err.message}.`;
   }
 
@@ -53,21 +54,16 @@ export async function getStaticProps() {
       examGroups,
       error,
     },
-    //
-    // NO 'revalidate' KEY!
-    // This is important. It means the page will NEVER
-    // update automatically. It only updates when
-    // you call your secret API.
-    //
+    // NO 'revalidate' KEY! This is now 100% manual.
   };
 }
 
 /**
  * This is your normal 'Home' component.
- * It is fast because it gets 'examGroups' as a prop
- * and does not need to use 'useEffect' or 'useState' to fetch.
+ * It is fast because it gets 'examGroups' as a prop.
  */
 export default function Home({ examGroups, error }) {
+  // ... (All your HTML/JSX is the same as before) ...
   return (
     <>
       <Head>
@@ -135,4 +131,4 @@ export default function Home({ examGroups, error }) {
       <footer> {/* Empty footer */} </footer>
     </>
   );
-              }
+}

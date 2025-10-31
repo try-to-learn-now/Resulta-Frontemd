@@ -1,56 +1,73 @@
 // pages/index.js
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import styles from '../styles/Home.module.css';
 
-// --- NEW PROXY URL for BEU API ---
-// REPLACE 'walla.workers.dev' with your proxy worker's domain
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
+// We call the REAL BEU API directly, as you proved we can.
+const REAL_BEU_API_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get'; 
 
-export default function Home() {
-  const [examGroups, setExamGroups] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+/**
+ * This is the SERVER-SIDE function.
+ * It runs once at build time to create an instant static page.
+ * It will run again ONLY when you hit your secret API.
+ */
+export async function getStaticProps() {
+  console.log("SERVER: Building static page...");
+  let examGroups = [];
+  let error = null;
 
-  useEffect(() => {
-    const fetchExams = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(BEU_EXAM_LIST_URL); // Calls your proxy
-        if (!response.ok) {
-           let errData;
-           try { errData = await response.json(); } catch(e) { errData = { details: await response.text() } }
-           throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
+  try {
+    // We call the BEU API directly. No proxy, no cold start.
+    const response = await fetch(REAL_BEU_API_URL); 
+    
+    if (!response.ok) {
+       throw new Error(`BEU API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // This is your same good logic from the original file
+    examGroups = data.reduce((acc, course) => {
+        if (course.exams && course.exams.length > 0) {
+            const sortedExams = [...course.exams].sort((a, b) => {
+                 if(a.semId !== b.semId) return b.semId - a.semId;
+                 return a.examName.localeCompare(b.examName);
+            });
+            acc.push({
+                courseName: course.courseName,
+                exams: sortedExams
+            });
         }
-        const data = await response.json();
-        
-        const groups = data.reduce((acc, course) => {
-            if (course.exams && course.exams.length > 0) {
-                const sortedExams = [...course.exams].sort((a, b) => {
-                     if(a.semId !== b.semId) return b.semId - a.semId;
-                     return a.examName.localeCompare(b.examName);
-                });
-                acc.push({
-                    courseName: course.courseName,
-                    exams: sortedExams
-                });
-            }
-            return acc;
-        }, []);
-        
-        setExamGroups(groups);
-      } catch (err) {
-        console.error("Failed to fetch exam list:", err);
-        setError(`Could not load exam list: ${err.message}. Make sure the proxy worker is deployed.`);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchExams();
-  }, []); // Empty dependency array
+        return acc;
+    }, []);
 
+  } catch (err) {
+    console.error("Failed to fetch exam list during build:", err);
+    error = `Could not load exam list: ${err.message}.`;
+  }
+
+  // Pass data to the 'Home' component
+  return {
+    props: {
+      examGroups,
+      error,
+    },
+    //
+    // NO 'revalidate' KEY!
+    // This is important. It means the page will NEVER
+    // update automatically. It only updates when
+    // you call your secret API.
+    //
+  };
+}
+
+/**
+ * This is your normal 'Home' component.
+ * It is fast because it gets 'examGroups' as a prop
+ * and does not need to use 'useEffect' or 'useState' to fetch.
+ */
+export default function Home({ examGroups, error }) {
   return (
     <>
       <Head>
@@ -65,10 +82,10 @@ export default function Home() {
             <h1 className={styles.title}>Examination Results</h1>
             <p className={styles.subtitle}>(Select a B.Tech exam below to access results)</p>
 
-            {isLoading && <div className={styles.loader}>Loading exams...</div>}
+            {/* No loader needed, page is instant */}
             {error && <div className={styles.errorBox}>⚠️ {error}</div>}
             
-            {!isLoading && !error && (
+            {!error && (
                 <div className={styles.examTableContainer}>
                     <table className={styles.examTable}>
                         <thead>
@@ -118,4 +135,4 @@ export default function Home() {
       <footer> {/* Empty footer */} </footer>
     </>
   );
-}
+              }

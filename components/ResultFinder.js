@@ -5,16 +5,17 @@ import 'jspdf-autotable';
 import styles from '../styles/ResultFinder.module.css';
 
 // --- Configuration: Your Final Cloudflare Worker URLs ---
+// IMPORTANT: Replace with your actual deployed worker URLs
 const WORKER_URLS = {
     user: "https://resulta-user.walla.workers.dev/api/result", // REPLACE
     reg1: "https://resulta-reg1.walla.workers.dev/api/result", // REPLACE
     reg2: "https://resulta-reg2.walla.workers.dev/api/result", // REPLACE
     le:   "https://resulta-le.walla.workers.dev/api/result",   // REPLACE
 };
-
 // --- NEW PROXY URL for BEU API ---
+// You MUST create this 5th worker
 const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
-const LAZY_LOAD_DELAY = 40;
+const LAZY_LOAD_DELAY = 40; // Milliseconds between showing each student
 const BATCH_STEP = 5; // --- FIX: ADDED MISSING CONSTANT ---
 
 // --- Helper Maps ---
@@ -77,7 +78,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             console.log(`Fetching details for examId: ${selectedExamIdProp}`);
             setError(null); 
             try {
-                const response = await fetch(BEU_EXAM_LIST_URL); // Calls proxy
+                // This now correctly calls your proxy worker
+                const response = await fetch(BEU_EXAM_LIST_URL); 
                 if (!response.ok) {
                     const errData = await response.json();
                     throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
@@ -178,8 +180,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         let tempErrorList = [];
         let userResultObject = null;
         
-        // Use BATCH_STEP constant
-        const estTotalBatches = 1 + (60 / BATCH_STEP) + (60 / BATCH_STEP); // User(1) + Reg1(12) + LE(12)
+        const estTotalBatches = 1 + (60 / BATCH_STEP) + (60 / BATCH_STEP);
         let batchesLoaded = 0;
         setProgress({ percent: 0, loaded: 0, total: 0, stage: 'Initializing...'});
 
@@ -204,9 +205,9 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             let reg1Data = [], leData = [];
 
-            setLoadingStage(`Loading class results (1-60)...`);
+            setLoadingStage('Loading class results (1-60)...');
             reg1Data = await fetchWorkerData('reg1', params);
-            batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            batchesLoaded += (60 / BATCH_STEP);
             setProgress(prev => ({...prev, percent: Math.round((batchesLoaded / estTotalBatches) * 100), stage: 'Loading LE results...'}));
             if (reg1Data.some(r => r.status === 'Error')) {
                 encounteredError = true;
@@ -215,7 +216,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             
             setLoadingStage('Loading results (LE 901-960)...');
             leData = await fetchWorkerData('le', params);
-            batchesLoaded += (60 / BATCH_STEP); // 12 batches
+            batchesLoaded += (60 / BATCH_STEP);
             setProgress(prev => ({...prev, percent: 100, stage: 'Finalizing...'}));
             if (leData.some(r => r.status === 'Error')) {
                 encounteredError = true;
@@ -423,7 +424,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                  {data.theorySubjects?.length > 0 ? (
                     <table className={styles.modalTable}><thead><tr><th>Code</th><th>Name</th><th>ESE</th><th>IA</th><th>Total</th><th>Grade</th><th>Credit</th></tr></thead><tbody>
                     {data.theorySubjects.map(s => <tr key={s.code}><td>{s.code}</td><td>{s.name}</td><td>{s.ese??'-'}</td><td>{s.ia??'-'}</td><td>{s.total??'-'}</td><td>{s.grade??'-'}</td><td>{s.credit??'-'}</td></tr>)}</tbody></table>
-                 ) : <p>No theory subjects found.</p>}
+                 ) : <p>No theory subjects.</p>}
 
                  <hr/><h3>Practical Subjects</h3>
                  {data.practicalSubjects?.length > 0 ? (

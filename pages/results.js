@@ -1,4 +1,5 @@
 // pages/results.js
+import React from 'react'; // <-- ADDED IMPORT
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import ResultFinder from '../components/ResultFinder';

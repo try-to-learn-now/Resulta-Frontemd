@@ -1,12 +1,13 @@
 // pages/index.js
+import React, { useState, useEffect } from 'react'; // <-- ADDED IMPORT
 import Head from 'next/head';
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import styles from '../styles/Home.module.css'; // This file MUST exist
+import styles from '../styles/Home.module.css';
 
-// --- NEW PROXY URL for BEU API ---
-// You MUST create this 5th worker
-const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // REPLACE with your proxy worker URL
+// --- NEW LINE (REPLACE WITH YOUR PROXY WORKER URL) ---
+const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; 
+// --- OLD LINE (DELETE) ---
+// const BEU_EXAM_LIST_URL = 'https://beu-bih.ac.in/backend/v1/result/sem-get';
 
 export default function Home() {
   const [examGroups, setExamGroups] = useState([]);
@@ -18,10 +19,10 @@ export default function Home() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(BEU_EXAM_LIST_URL); // Call your proxy worker
+        const response = await fetch(BEU_EXAM_LIST_URL); // Calls your proxy
         if (!response.ok) {
-           const errData = await response.json();
-           throw new Error(errData.details || `BEU API Error: ${response.status}`);
+            const errData = await response.json();
+            throw new Error(errData.details || `BEU API Proxy Error: ${response.status}`);
         }
         const data = await response.json();
         
@@ -48,7 +49,7 @@ export default function Home() {
       }
     };
     fetchExams();
-  }, []);
+  }, []); // Empty dependency array ensures this runs once on mount
 
   return (
     <>
@@ -85,11 +86,15 @@ export default function Home() {
                                         <td colSpan="4">{group.courseName}</td>
                                     </tr>
                                     {group.exams.map(exam => (
-                                        <tr key={exam.id} className={`${styles.examRow} ${group.courseName === 'B.Tech' ? styles.examRowBTech : ''}`}>
+                                        <tr 
+                                            key={exam.id} 
+                                            className={`${styles.examRow} ${group.courseName === 'B.Tech' ? styles.examRowBTech : ''}`}
+                                        >
                                             <td className={styles.examName}>
                                                 {group.courseName === 'B.Tech' ? (
                                                     <Link href={`/results?examId=${exam.id}`} passHref>
-                                                        {exam.examName}
+                                                        {/* <a> is needed inside Link for passHref to work correctly with non-<a> children */}
+                                                        <a>{exam.examName}</a>
                                                     </Link>
                                                 ) : (
                                                     exam.examName
@@ -111,9 +116,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer>
-         {/* Empty footer as requested */}
-      </footer>
+      <footer> {/* Empty footer */} </footer>
     </>
   );
-                                                  }
+              }

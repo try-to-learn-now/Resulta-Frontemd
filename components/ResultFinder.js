@@ -16,7 +16,7 @@ const BEU_EXAM_LIST_URL = 'https://resulta-exams-proxy.walla.workers.dev'; // RE
 const LAZY_LOAD_DELAY = 40; 
 const BATCH_STEP = 5;
 // --- IMPORTANT: Set your website name for the PDF footer ---
-const MY_WEBSITE_NAME = "[YourWebsiteName.com]"; // <-- *** CHANGE THIS ***
+const MY_WEBSITE_NAME = "MyWebsiteName.com"; // <-- *** CHANGE THIS ***
 
 // --- Helper Maps ---
 const arabicToRomanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
@@ -67,7 +67,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     const [showLoadMore, setShowLoadMore] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [fetchedReg2, setFetchedReg2] = useState(false);
-    // --- DELETED modalOpen and selectedStudentData states ---
+    // --- DELETED modal states ---
 
     // --- Fetch Exam Details ---
     useEffect(() => {
@@ -108,13 +108,10 @@ const ResultFinder = ({ selectedExamIdProp }) => {
      const mergeAndSortResults = (existingResults, newResults) => {
          const resultMap = new Map(existingResults.map(item => [item.regNo || `error-${Math.random()}`, item]));
          newResults.forEach(item => {
-             if (item.status !== 'Record not found') {
-                 const existing = resultMap.get(item.regNo);
-                 if (!existing || (existing.status === 'Error' && item.status !== 'Error') || !item.regNo) {
-                    resultMap.set(item.regNo || `error-${Math.random()}`, item);
-                 }
-             } else {
-                 if (resultMap.has(item.regNo)) { resultMap.delete(item.regNo); }
+             // We no longer filter "Record not found" here, we filter it in the render
+             const existing = resultMap.get(item.regNo);
+             if (!existing || (existing.status === 'Error' && item.status !== 'Error') || !item.regNo) {
+                resultMap.set(item.regNo || `error-${Math.random()}`, item);
              }
          });
          return Array.from(resultMap.values()).sort((a,b) => {
@@ -143,7 +140,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         }
         const timer = setTimeout(() => {
             const student = fetchedDataQueue[0];
-            // --- UPDATED LOGIC ---
+            
+            // --- UPDATED LAZY LOAD LOGIC ---
             // Add student to class results (merge handles duplicates)
             setClassResults(prev => mergeAndSortResults(prev, [student]));
 
@@ -160,7 +158,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             setFetchedDataQueue(prev => prev.slice(1));
         }, LAZY_LOAD_DELAY); 
         return () => clearTimeout(timer); 
-    }, [fetchedDataQueue, isLoading, isLoadingMore, searchPerformed]); // --- UPDATED: Removed regNo dependency
+    }, [fetchedDataQueue, isLoading, isLoadingMore, searchPerformed]);
 
 
     // --- Search Function ---
@@ -236,14 +234,12 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             const combinedClassData = [...userBatchData, ...reg1Data, ...leData];
             // --- END FIX 2 ---
             
-            // We now filter "Record not found" *here*, so the total is accurate
-            const filteredClassData = combinedClassData.filter(r => r.status !== 'Record not found');
-            
-            const totalStudentsFound = filteredClassData.length;
+            // We set the total for the progress bar
+            const totalStudentsFound = combinedClassData.filter(r => r.status !== 'Record not found').length;
             setProgress({ percent: 0, loaded: 0, total: totalStudentsFound, stage: `Loading ${totalStudentsFound} students...`});
             
             // Add all results to the lazy-load queue
-            setFetchedDataQueue(filteredClassData);
+            setFetchedDataQueue(combinedClassData);
             
             // Show "Load More" button (this logic is good)
             const suffixNum = parseInt(regNo.slice(-3));
@@ -301,12 +297,11 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     // --- Event Handlers ---
     const handleSearch = (e) => { e.preventDefault(); executeSearch(false); };
     const handleRetry = () => { if (lastSearchParams) executeSearch(true); };
-    // --- DELETED modal functions ---
 
     
     // ---
     // ---
-    // --- NEW PDF GENERATION ---
+    // --- NEW PDF GENERATION (DEMO THEME) ---
     // ---
     // ---
     
@@ -357,7 +352,8 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         doc.text("Result Summary", 14, 22);
         
         const successStudents = allResults.filter(r => r.status === 'success').map(r => r.regNo);
-        const errorStudents = allResults.filter(r => r.status === 'Error').map(r => r.regNo);
+        // --- UPDATED: Show all failed (Error + Timeout) students ---
+        const errorStudents = allResults.filter(r => r.status === 'Error' || r.status === 'Timed Out').map(r => r.regNo);
         // We ignore "Record not found" and "Not Found" as requested
 
         let yPos = 40;
@@ -365,7 +361,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         if (successStudents.length > 0) {
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.setTextColor(0, 100, 0); // Green
+            doc.setTextColor(40, 167, 69); // Green
             doc.text(`Successful Students (${successStudents.length})`, 14, yPos);
             yPos += 8;
             
@@ -506,7 +502,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
             },
             didParseCell: (hookData) => {
                 if (hookData.column.index === 1 && hookData.row.index === 2) {
-                    hookData.cell.styles.textColor = (data.fail_any === 'PASS') ? [0, 100, 0] : [220, 53, 69];
+                    hookData.cell.styles.textColor = (data.fail_any === 'PASS') ? [40, 167, 69] : [220, 53, 69];
                 }
             }
         });
@@ -528,7 +524,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                 doc.text("Remarks: FAIL (Back Paper)", 14, yPos);
                 yPos += 3;
                 
-                // Chunk into rows of 3
+                // Chunk into rows of 3 (or less)
                 const failedRows = chunkArray(failedSubjects, 3);
                 
                 doc.autoTable({
@@ -572,6 +568,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
         }
 
         // --- Footer (REBUILT) ---
+        // --- DELETED Watermark ---
         const pageCount = doc.internal.getNumberOfPages();
         doc.setFontSize(9);
         doc.setTextColor(100);
@@ -587,25 +584,28 @@ const ResultFinder = ({ selectedExamIdProp }) => {
     // --- PDF Main: Generate Class PDF (REBUILT) ---
     const generatePdf = () => {
          let resultsForPdf = [];
-         if (userResult?.status === 'success') { resultsForPdf.push(userResult); }
+         if (userResult) { resultsForPdf.push(userResult); } // Add user result first
          resultsForPdf = [...resultsForPdf, ...classResults];
-         const successfulResults = resultsForPdf.filter(res => res.status === 'success');
+         
+         // Get all unique results
          const allFetchedResults = Array.from(new Map(resultsForPdf.map(item => [item.regNo, item])).values());
-         const uniqueSuccessResults = Array.from(new Map(successfulResults.map(item => [item.regNo, item])).values());
+         
+         // Get only unique *successful* results for the detail pages
+         const uniqueSuccessResults = allFetchedResults.filter(res => res.status === 'success');
          uniqueSuccessResults.sort((a,b) => (a.regNo || "").localeCompare(b.regNo || ""));
 
-        if (uniqueSuccessResults.length === 0) { alert("No successful results found to generate PDF."); return; }
+        if (allFetchedResults.length === 0) { alert("No results found to generate PDF."); return; }
         
-        alert(`Generating PDF... This may take a moment for ${uniqueSuccessResults.length} students.`);
+        alert(`Generating PDF... This may take a moment for ${allFetchedResults.length} students found.`);
 
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const examDetails = getSelectedExamDetails();
         
         // --- NEW PAGE 1: Cover Page ---
-        addCoverPage(doc, uniqueSuccessResults);
+        addCoverPage(doc, uniqueSuccessResults); // Pass only success ones for the "count"
         
         // --- NEW PAGE 2: Summary Page ---
-        addSummaryPage(doc, allFetchedResults);
+        addSummaryPage(doc, allFetchedResults); // Pass ALL results for the summary
 
         // --- Page 3+: Student Result Pages ---
          uniqueSuccessResults.forEach((student) => {
@@ -637,7 +637,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
      // ---
      // ---
-     // --- NEW "FAST AS FUCK" RESULT BLOCK ---
+     // --- NEW "FAST AS FUCK" RESULT BLOCK (REPLACES DetailedResultView) ---
      // ---
      // ---
      
@@ -657,7 +657,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
         if (failedSubjects.length === 0) return null;
 
-        // --- SMART LOGIC: Chunk into rows of 3 ---
+        // --- SMART LOGIC: Chunk into rows of 3 (from your script.js) ---
         const chunkedFailSubjects = [];
         for (let i = 0; i < failedSubjects.length; i += 3) {
             chunkedFailSubjects.push(failedSubjects.slice(i, i + 3));
@@ -681,8 +681,28 @@ const ResultFinder = ({ selectedExamIdProp }) => {
 
      // --- NEW Helper: Render a Single "Fast as Fuck" Result Card ---
      const StudentResultBlock = ({ studentResult, isUser = false }) => {
-         if (!studentResult.data) {
-             // This renders the card for Error/Not Found students
+         // --- This renders the card for Error/Not Found/Record not found students ---
+         if (studentResult.status !== 'success') {
+             // We don't render "Record not found" or "Not Found" for the *class*
+             if (!isUser && (studentResult.status === 'Record not found' || studentResult.status === 'Not Found')) {
+                 return null;
+             }
+             
+             // But we *do* show the user's "Not Found" status
+             if (isUser && (studentResult.status === 'Record not found' || studentResult.status === 'Not Found')) {
+                 return (
+                    <div className={`${styles.resultPage} ${styles.isUserResult}`}>
+                         <div className={styles.resultHeader}>
+                            <h2>{studentResult.regNo}</h2>
+                         </div>
+                         <div className={styles.resultBody}>
+                             <p><strong>Status:</strong> Record not found for this exam.</p>
+                         </div>
+                    </div>
+                 );
+             }
+
+             // And we show all "Error" statuses
              if (studentResult.status === 'Error') {
                  return (
                     <div className={`${styles.resultPage} ${isUser ? styles.isUserResult : ''}`}>
@@ -695,8 +715,7 @@ const ResultFinder = ({ selectedExamIdProp }) => {
                     </div>
                  );
              }
-             // We don't render "Record not found"
-             return null;
+             return null; // Fallback
          }
          
          // This is a successful result

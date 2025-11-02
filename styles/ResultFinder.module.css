@@ -308,6 +308,7 @@
   margin-bottom: 10px;
 }
 
+/* This is your smart 3-per-line logic */
 .failedSubject {
   flex: 1;
   min-width: 200px;
